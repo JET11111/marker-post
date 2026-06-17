@@ -1,5 +1,5 @@
 // Service worker: precache app shell + dataset for full offline use.
-const CACHE = "markerpost-v5";
+const CACHE = "markerpost-v6";
 const ASSETS = [
   ".",
   "index.html",
@@ -25,18 +25,18 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Cache-first for same-origin (offline-first). Never touch waze.com etc.
+// Network-first for same-origin: always fresh when online, cache as offline
+// fallback. Keeps full offline use without ever serving a stale app shell.
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
   e.respondWith(
-    caches.match(e.request).then((hit) => {
-      if (hit) return hit;
-      return fetch(e.request).then((res) => {
+    fetch(e.request)
+      .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         return res;
-      });
-    })
+      })
+      .catch(() => caches.match(e.request).then((hit) => hit || caches.match("index.html")))
   );
 });
