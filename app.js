@@ -2,11 +2,16 @@
 
 // ---------- data ----------
 let POSTS = [];
+let JUNCTIONS = [];
 const byRoad = new Map();
 
 async function loadData() {
-  const res = await fetch("data/posts.json", { cache: "force-cache" });
-  POSTS = await res.json();
+  const [pRes, jRes] = await Promise.all([
+    fetch("data/posts.json", { cache: "force-cache" }),
+    fetch("data/junctions.json", { cache: "force-cache" }),
+  ]);
+  POSTS = await pRes.json();
+  JUNCTIONS = await jRes.json();
   for (const p of POSTS) {
     if (!byRoad.has(p.road)) byRoad.set(p.road, []);
     byRoad.get(p.road).push(p);
@@ -65,6 +70,17 @@ const el = (id) => document.getElementById(id);
 const fmtDist = (m) =>
   m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(m < 10000 ? 2 : 1)} km`;
 
+// Nearest junction on the given road (motorways only); null if none.
+function nearestJunction(lat, lng, road) {
+  let best = null, bestD = Infinity;
+  for (const j of JUNCTIONS) {
+    if (j.road !== road) continue;
+    const d = haversine(lat, lng, j.lat, j.lng);
+    if (d < bestD) { bestD = d; best = j; }
+  }
+  return best ? { jct: best, dist: bestD } : null;
+}
+
 function renderNearest(lat, lng, heading, speed, accuracy) {
   const useHeading = el("heading-toggle").checked;
   const { post, dist } = findNearest(lat, lng, heading, speed, useHeading);
@@ -72,6 +88,15 @@ function renderNearest(lat, lng, heading, speed, accuracy) {
   el("np-ref").textContent = post.ref;
   el("np-road").textContent = `${post.road} · carriageway ${post.direction}`;
   el("np-dist").textContent = fmtDist(dist);
+
+  const njEl = el("np-jct");
+  const nj = nearestJunction(lat, lng, post.road);
+  if (nj) {
+    njEl.textContent = `Nearest junction: ${post.road} ${nj.jct.jct} · ${fmtDist(nj.dist)}`;
+    njEl.classList.remove("hidden");
+  } else {
+    njEl.classList.add("hidden");
+  }
   el("np-meta").textContent =
     `GPS ±${Math.round(accuracy)} m · updated ${new Date().toLocaleTimeString("en-GB")}`;
 }

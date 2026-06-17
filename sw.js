@@ -1,5 +1,5 @@
 // Service worker: precache app shell + dataset for full offline use.
-const CACHE = "markerpost-v1";
+const CACHE = "markerpost-v2";
 const ASSETS = [
   ".",
   "index.html",
@@ -7,6 +7,7 @@ const ASSETS = [
   "app.js",
   "manifest.json",
   "data/posts.json",
+  "data/junctions.json",
   "icons/icon-192.png",
   "icons/icon-512.png",
   "icons/icon-maskable-512.png",

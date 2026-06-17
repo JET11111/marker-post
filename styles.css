@@ -52,6 +52,7 @@ main { flex: 1; padding: 14px; overflow-y: auto; }
 }
 .road { font-size: clamp(20px, 6vw, 34px); font-weight: 700; }
 .dist { font-size: clamp(28px, 9vw, 56px); font-weight: 700; font-variant-numeric: tabular-nums; }
+.jct { font-size: clamp(18px, 5vw, 26px); font-weight: 700; color: #cfe3ff; margin-top: 2px; }
 .meta { color: var(--muted); font-size: 14px; margin-top: 6px; }
 
 .toggle { display: flex; align-items: center; gap: 10px; margin-top: 16px; color: var(--muted); font-size: 15px; }
