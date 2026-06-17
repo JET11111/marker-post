@@ -162,6 +162,7 @@ select {
 /* ---------- result ---------- */
 .result { display: flex; flex-direction: column; gap: 12px; }
 .result-detail { color: var(--muted); font-size: 14.5px; line-height: 1.5; text-align: center; }
+.result-detail.warn { color: var(--amber); font-weight: 600; }
 
 /* ---------- tabs ---------- */
 .tabs {

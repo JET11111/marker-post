@@ -163,7 +163,17 @@ function populateRoads() {
 function onRoadChange() {
   const road = el("g-road").value;
   const posts = byRoad.get(road) || [];
-  const dirs = [...new Set(posts.map((p) => p.direction))].sort();
+  // Order carriageways A,B first, then by how many posts they have (mainline
+  // before sparse slip links), so the default isn't a stray slip carriageway.
+  const counts = {};
+  for (const p of posts) counts[p.direction] = (counts[p.direction] || 0) + 1;
+  const dirs = [...new Set(posts.map((p) => p.direction))].sort((a, b) => {
+    const pa = a === "A" ? 0 : a === "B" ? 1 : 2;
+    const pb = b === "A" ? 0 : b === "B" ? 1 : 2;
+    if (pa !== pb) return pa - pb;
+    if (counts[b] !== counts[a]) return counts[b] - counts[a];
+    return a.localeCompare(b);
+  });
   el("g-dir").innerHTML = dirs.map((d) => `<option value="${d}">${d}</option>`).join("");
   const ds = posts.map((p) => p.distance).sort((a, b) => a - b);
   el("g-hint").textContent = ds.length
@@ -210,9 +220,16 @@ function findPost() {
   }
   hero.classList.remove("hidden");
   paintSign("r-road", "r-ref", match);
-  el("r-detail").textContent = exact
-    ? `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km`
-    : `Nearest match — ${Math.abs(match.distance - dist).toFixed(1)} km off your ${dist} km · ${match.lat.toFixed(5)}, ${match.lng.toFixed(5)}`;
+  const off = Math.abs(match.distance - dist);
+  const detail = el("r-detail");
+  if (exact || off <= 0.15) {
+    detail.classList.remove("warn");
+    detail.textContent = `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km`;
+  } else {
+    detail.classList.add("warn");
+    detail.textContent =
+      `⚠ No ${roadLabel(road)}/${dir} post at ${dist} km — nearest is ${match.ref} (${match.distance} km, ${off.toFixed(1)} km away). Check the carriageway letter and distance.`;
+  }
   const waze = el("r-waze");
   waze.href = `https://waze.com/ul?ll=${match.lat},${match.lng}&navigate=yes`;
   waze.classList.remove("hidden");
@@ -227,14 +244,15 @@ function parseQuick(s) {
   // Remove the road token first so its digits/letter don't get read as distance/dir.
   const rest = road ? s.replace(road, " ") : s;
   let dist, dir;
-  const ref = s.match(/P(\d+)\/(\d)\s*([AB])/);
+  const ref = s.match(/P(\d+)\/(\d)\s*([A-Z])/);
   if (ref) {
     dist = parseFloat(ref[1]) + parseFloat(ref[2]) / 10;
     dir = ref[3];
   } else {
     const dm = rest.match(/(\d+(?:\.\d+)?)/);
     if (dm) dist = parseFloat(dm[1]);
-    const dirm = rest.match(/\b([AB])\b/) || rest.match(/([AB])\s*$/);
+    // carriageway letter: any standalone/trailing A–Z (M271 uses L/M, links J/K…)
+    const dirm = rest.match(/\b([A-Z])\b/) || rest.match(/([A-Z])\s*$/);
     if (dirm) dir = dirm[1];
   }
   if (road && byRoad.has(road.replace("(M)", "M"))) {
