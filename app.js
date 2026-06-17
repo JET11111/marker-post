@@ -86,26 +86,13 @@ function junctionLabel(road, jct) {
   return /^J/.test(jct) ? `${road} ${jct}` : `${jct} jct`;
 }
 
-// Display label + motorway test (A3M is the A3(M) motorway).
+// Display label (A3M is the A3(M) motorway).
 const roadLabel = (road) => (road === "A3M" ? "A3(M)" : road);
-const isMotorway = (road) => road[0] === "M" || road === "A3M";
 
-// Scale the road number to fill its width without overflowing (max 150px).
-function fitRoad(roadEl) {
-  roadEl.style.fontSize = "150px";
-  const w = roadEl.clientWidth;
-  if (w && roadEl.scrollWidth > w) {
-    roadEl.style.fontSize = `${Math.floor((150 * w) / roadEl.scrollWidth)}px`;
-  }
-}
-
-// Render a post into a Driver Location Sign block.
-function paintSign(signId, roadId, refId, cwyId, post) {
-  el(signId).classList.toggle("aroad", !isMotorway(post.road));
-  const roadEl = el(roadId);
-  roadEl.textContent = roadLabel(post.road);
-  fitRoad(roadEl);
+// Render a post into a hero block (marker post ref + road + carriageway).
+function paintSign(roadId, refId, cwyId, post) {
   el(refId).textContent = post.ref;
+  el(roadId).textContent = roadLabel(post.road);
   el(cwyId).textContent = post.direction;
 }
 
@@ -113,7 +100,7 @@ function renderNearest(lat, lng, heading, speed, accuracy) {
   const useHeading = el("heading-toggle").checked;
   const { post, dist } = findNearest(lat, lng, heading, speed, useHeading);
   if (!post) return;
-  paintSign("np-sign", "np-road", "np-ref", "np-cwy", post);
+  paintSign("np-road", "np-ref", "np-cwy", post);
   el("np-dist").textContent = fmtDist(dist);
 
   const row = el("np-jct-row");
@@ -214,16 +201,16 @@ function findPost() {
       if (d < bestD) { bestD = d; match = p; }
     }
   }
-  const sign = el("r-sign");
+  const hero = el("r-hero");
   if (!match) {
-    sign.classList.add("hidden");
+    hero.classList.add("hidden");
     el("r-detail").textContent = `No ${roadLabel(road)} carriageway ${dir} posts in dataset.`;
     el("r-waze").classList.add("hidden");
     result.classList.remove("hidden");
     return;
   }
-  sign.classList.remove("hidden");
-  paintSign("r-sign", "r-road", "r-ref", "r-cwy", match);
+  hero.classList.remove("hidden");
+  paintSign("r-road", "r-ref", "r-cwy", match);
   el("r-detail").textContent = exact
     ? `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km`
     : `Nearest match — ${Math.abs(match.distance - dist).toFixed(1)} km off your ${dist} km · ${match.lat.toFixed(5)}, ${match.lng.toFixed(5)}`;
@@ -301,12 +288,6 @@ async function init() {
     findPost();
   }
 
-  window.addEventListener("resize", () => {
-    for (const id of ["np-road", "r-road"]) {
-      const e = el(id);
-      if (e && e.offsetParent !== null) fitRoad(e);
-    }
-  });
   window.addEventListener("online", updateOnline);
   window.addEventListener("offline", updateOnline);
   updateOnline();

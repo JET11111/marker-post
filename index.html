@@ -27,30 +27,23 @@
   <main>
     <!-- NEAREST VIEW -->
     <section id="view-nearest" class="view">
-      <div class="eyebrow eyebrow-top">Nearest marker post</div>
-
-      <div id="np-sign" class="dls">
-        <div id="np-road" class="dls-road">—</div>
-        <div class="dls-grid">
-          <div class="dls-cell">
-            <span class="dls-cap">Cwy</span>
-            <span id="np-cwy" class="dls-big">—</span>
-          </div>
-          <div class="dls-cell dls-cell-wide">
-            <span class="dls-cap">Marker post</span>
-            <span id="np-ref" class="dls-big">—</span>
-          </div>
+      <div class="hero">
+        <div class="eyebrow">Nearest marker post</div>
+        <div id="np-ref" class="post-ref">—</div>
+        <div class="road-line">
+          <span id="np-road" class="road-no">—</span>
+          <span class="road-cwy">Carriageway <b id="np-cwy">—</b></span>
         </div>
       </div>
 
-      <div class="stats">
-        <div class="stat">
-          <span class="stat-lbl">Distance to post</span>
-          <span class="stat-val"><span id="np-dist">—</span></span>
+      <div class="info">
+        <div class="info-row">
+          <span class="info-lbl">Distance to post</span>
+          <span class="info-val" id="np-dist">—</span>
         </div>
-        <div id="np-jct-row" class="stat hidden">
-          <span class="stat-lbl">Nearest junction</span>
-          <span class="stat-val"><span id="np-jct">—</span> <span id="np-jct-dist" class="stat-sub"></span></span>
+        <div id="np-jct-row" class="info-row hidden">
+          <span class="info-lbl">Nearest junction</span>
+          <span class="info-val"><span id="np-jct">—</span> <span class="info-sub" id="np-jct-dist"></span></span>
         </div>
       </div>
 
@@ -93,17 +86,12 @@
       </div>
 
       <div id="g-result" class="result hidden">
-        <div id="r-sign" class="dls">
-          <div id="r-road" class="dls-road">—</div>
-          <div class="dls-grid">
-            <div class="dls-cell">
-              <span class="dls-cap">Cwy</span>
-              <span id="r-cwy" class="dls-big">—</span>
-            </div>
-            <div class="dls-cell dls-cell-wide">
-              <span class="dls-cap">Marker post</span>
-              <span id="r-ref" class="dls-big">—</span>
-            </div>
+        <div id="r-hero" class="hero hero-card">
+          <div class="eyebrow">Marker post</div>
+          <div id="r-ref" class="post-ref">—</div>
+          <div class="road-line">
+            <span id="r-road" class="road-no">—</span>
+            <span class="road-cwy">Carriageway <b id="r-cwy">—</b></span>
           </div>
         </div>
         <div id="r-detail" class="result-detail"></div>

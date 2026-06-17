@@ -72,56 +72,52 @@ main { flex: 1; padding: 6px var(--pad) var(--pad); overflow-y: auto; }
 
 /* ---------- eyebrow ---------- */
 .eyebrow {
-  font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
-  color: var(--muted); font-weight: 700;
-}
-.eyebrow-top { text-align: center; margin: 2px 0 -4px; }
-
-/* ---------- Driver Location Sign ---------- */
-.dls {
-  --sign: #0b50b0;            /* motorway blue by default */
-  background: linear-gradient(180deg, color-mix(in srgb, var(--sign) 88%, #fff 12%), var(--sign));
-  border: 4px solid #fff;
-  border-radius: 16px;
-  padding: 14px 16px 16px;
-  box-shadow: 0 14px 34px -16px #000c, 0 0 0 1px #0006;
-  color: #fff;
-}
-.dls.aroad { --sign: #0a7a40; }   /* primary-route green for A-roads */
-.dls-road {
-  font-size: 150px; font-weight: 900; line-height: .9; /* JS fits to width */
-  text-align: center; letter-spacing: -1px; font-variant-numeric: tabular-nums;
-  text-shadow: 0 3px 0 #00000035; white-space: nowrap;
-}
-.dls-grid {
-  display: flex; gap: 10px; margin-top: 12px;
-}
-.dls-cell {
-  flex: 1; background: #ffffff1a; border: 1.5px solid #ffffff40; border-radius: 11px;
-  padding: 9px 12px; display: flex; flex-direction: column; gap: 3px; min-width: 0;
-}
-.dls-cell-wide { flex: 1.7; }
-.dls-cap {
-  font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase;
-  color: #ffffffb0; font-weight: 700;
-}
-.dls-big {
-  font-size: clamp(30px, 9vw, 46px); font-weight: 800; line-height: 1;
-  font-variant-numeric: tabular-nums; letter-spacing: -.5px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-size: 12px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--muted); font-weight: 600;
 }
 
-/* ---------- stats under the sign ---------- */
-.stats { display: flex; flex-direction: column; gap: 1px; border-radius: 14px; overflow: hidden; }
-.stat {
+/* ---------- hero: marker post is the focal point ---------- */
+.hero {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 22px 16px 4px;
+}
+.hero-card {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg-2) 100%);
+  border: 1px solid var(--line-soft); border-radius: var(--r);
+  padding: 22px 16px 24px; box-shadow: 0 12px 30px -20px #000;
+}
+.post-ref {
+  font-size: clamp(76px, 27vw, 158px); font-weight: 800; line-height: .92;
+  letter-spacing: -3px; color: var(--text); font-variant-numeric: tabular-nums;
+  margin: 10px 0 0;
+}
+.road-line {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; justify-content: center;
+  margin-top: 16px;
+}
+.road-no {
+  font-size: clamp(30px, 9vw, 44px); font-weight: 800; color: var(--amber);
+  letter-spacing: .5px; line-height: 1;
+}
+.road-cwy { font-size: clamp(15px, 4.5vw, 19px); font-weight: 500; color: var(--muted); }
+.road-cwy b { color: var(--text); font-weight: 700; }
+
+/* ---------- info list ---------- */
+.info {
+  margin-top: 4px;
+  border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden;
+  background: var(--surface);
+}
+.info-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  background: var(--surface); padding: 14px 16px;
+  padding: 14px 16px;
 }
-.stat-lbl { font-size: 13px; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); font-weight: 600; }
-.stat-val { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.stat-sub { font-size: 15px; font-weight: 600; color: var(--muted); }
+.info-row + .info-row { border-top: 1px solid var(--line-soft); }
+.info-lbl { font-size: 13px; letter-spacing: .4px; color: var(--muted); }
+.info-val { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.info-sub { font-size: 14px; font-weight: 600; color: var(--muted); }
 
-.meta { color: var(--muted-2); font-size: 12.5px; text-align: center; font-variant-numeric: tabular-nums; }
+.meta { color: var(--muted-2); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
 
 /* ---------- switch ---------- */
 .switch {
