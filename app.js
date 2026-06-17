@@ -86,13 +86,34 @@ function junctionLabel(road, jct) {
   return /^J/.test(jct) ? `${road} ${jct}` : `${jct} jct`;
 }
 
+// Display label + motorway test (A3M is the A3(M) motorway).
+const roadLabel = (road) => (road === "A3M" ? "A3(M)" : road);
+const isMotorway = (road) => road[0] === "M" || road === "A3M";
+
+// Scale the road number to fill its width without overflowing (max 150px).
+function fitRoad(roadEl) {
+  roadEl.style.fontSize = "150px";
+  const w = roadEl.clientWidth;
+  if (w && roadEl.scrollWidth > w) {
+    roadEl.style.fontSize = `${Math.floor((150 * w) / roadEl.scrollWidth)}px`;
+  }
+}
+
+// Render a post into a Driver Location Sign block.
+function paintSign(signId, roadId, refId, cwyId, post) {
+  el(signId).classList.toggle("aroad", !isMotorway(post.road));
+  const roadEl = el(roadId);
+  roadEl.textContent = roadLabel(post.road);
+  fitRoad(roadEl);
+  el(refId).textContent = post.ref;
+  el(cwyId).textContent = post.direction;
+}
+
 function renderNearest(lat, lng, heading, speed, accuracy) {
   const useHeading = el("heading-toggle").checked;
   const { post, dist } = findNearest(lat, lng, heading, speed, useHeading);
   if (!post) return;
-  el("np-ref").textContent = post.ref;
-  el("np-road").textContent = post.road;
-  el("np-cwy").textContent = `Carriageway ${post.direction}`;
+  paintSign("np-sign", "np-road", "np-ref", "np-cwy", post);
   el("np-dist").textContent = fmtDist(dist);
 
   const row = el("np-jct-row");
@@ -149,7 +170,7 @@ function populateRoads() {
     if (ma !== mb) return ma ? -1 : 1;
     return a.localeCompare(b, undefined, { numeric: true });
   });
-  sel.innerHTML = roads.map((r) => `<option value="${r}">${r}</option>`).join("");
+  sel.innerHTML = roads.map((r) => `<option value="${r}">${roadLabel(r)}</option>`).join("");
   onRoadChange();
 }
 
@@ -160,7 +181,7 @@ function onRoadChange() {
   el("g-dir").innerHTML = dirs.map((d) => `<option value="${d}">${d}</option>`).join("");
   const ds = posts.map((p) => p.distance).sort((a, b) => a - b);
   el("g-hint").textContent = ds.length
-    ? `${road}: posts ${ds[0]}–${ds[ds.length - 1]} km, directions ${dirs.join("/")}`
+    ? `${roadLabel(road)}: posts ${ds[0]}–${ds[ds.length - 1]} km, directions ${dirs.join("/")}`
     : "";
 }
 
@@ -193,17 +214,19 @@ function findPost() {
       if (d < bestD) { bestD = d; match = p; }
     }
   }
+  const sign = el("r-sign");
   if (!match) {
-    el("r-ref").textContent = "Not found";
-    el("r-detail").textContent = `No ${road} carriageway ${dir} posts in dataset.`;
+    sign.classList.add("hidden");
+    el("r-detail").textContent = `No ${roadLabel(road)} carriageway ${dir} posts in dataset.`;
     el("r-waze").classList.add("hidden");
     result.classList.remove("hidden");
     return;
   }
-  el("r-ref").textContent = match.ref;
+  sign.classList.remove("hidden");
+  paintSign("r-sign", "r-road", "r-ref", "r-cwy", match);
   el("r-detail").textContent = exact
-    ? `${match.road} · carriageway ${match.direction} · ${match.distance} km`
-    : `Nearest match (${(Math.abs(match.distance - dist)).toFixed(1)} km off requested ${dist}) · ${match.lat.toFixed(5)}, ${match.lng.toFixed(5)}`;
+    ? `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km`
+    : `Nearest match — ${Math.abs(match.distance - dist).toFixed(1)} km off your ${dist} km · ${match.lat.toFixed(5)}, ${match.lng.toFixed(5)}`;
   const waze = el("r-waze");
   waze.href = `https://waze.com/ul?ll=${match.lat},${match.lng}&navigate=yes`;
   waze.classList.remove("hidden");
@@ -214,16 +237,18 @@ function findPost() {
 function parseQuick(s) {
   s = s.trim().toUpperCase();
   if (!s) return;
-  const road = (s.match(/\b([AM]\d+M?|A\d+\(M\))\b/) || [])[0];
+  const road = (s.match(/\b(A\d+\(M\)|[AM]\d+M?)/) || [])[0];
+  // Remove the road token first so its digits/letter don't get read as distance/dir.
+  const rest = road ? s.replace(road, " ") : s;
   let dist, dir;
   const ref = s.match(/P(\d+)\/(\d)\s*([AB])/);
   if (ref) {
     dist = parseFloat(ref[1]) + parseFloat(ref[2]) / 10;
     dir = ref[3];
   } else {
-    const dm = s.match(/(\d+(?:\.\d+)?)/);
+    const dm = rest.match(/(\d+(?:\.\d+)?)/);
     if (dm) dist = parseFloat(dm[1]);
-    const dirm = s.match(/\b([AB])\b/) || s.match(/([AB])\s*$/);
+    const dirm = rest.match(/\b([AB])\b/) || rest.match(/([AB])\s*$/);
     if (dirm) dir = dirm[1];
   }
   if (road && byRoad.has(road.replace("(M)", "M"))) {
@@ -266,6 +291,22 @@ async function init() {
   for (const t of document.querySelectorAll(".tab"))
     t.addEventListener("click", () => switchView(t.dataset.view));
   if (location.hash === "#goto") switchView("goto");
+
+  // Deep link: ?q=M27 13.6 A  -> open go-to, prefill and look up.
+  const q = new URLSearchParams(location.search).get("q");
+  if (q) {
+    switchView("goto");
+    el("g-quick").value = q;
+    parseQuick(q);
+    findPost();
+  }
+
+  window.addEventListener("resize", () => {
+    for (const id of ["np-road", "r-road"]) {
+      const e = el(id);
+      if (e && e.offsetParent !== null) fitRoad(e);
+    }
+  });
   window.addEventListener("online", updateOnline);
   window.addEventListener("offline", updateOnline);
   updateOnline();

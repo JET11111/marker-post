@@ -27,26 +27,34 @@
   <main>
     <!-- NEAREST VIEW -->
     <section id="view-nearest" class="view">
-      <div class="instrument">
-        <div class="eyebrow">Nearest marker post</div>
-        <div id="np-ref" class="ref">—</div>
-        <div class="pills">
-          <span id="np-road" class="pill pill-road">—</span>
-          <span id="np-cwy" class="pill">—</span>
-        </div>
+      <div class="eyebrow eyebrow-top">Nearest marker post</div>
 
-        <div class="readout">
-          <div class="readout-val"><span id="np-dist">—</span></div>
-          <div class="readout-lbl">distance to post</div>
+      <div id="np-sign" class="dls">
+        <div id="np-road" class="dls-road">—</div>
+        <div class="dls-grid">
+          <div class="dls-cell">
+            <span class="dls-cap">Cwy</span>
+            <span id="np-cwy" class="dls-big">—</span>
+          </div>
+          <div class="dls-cell dls-cell-wide">
+            <span class="dls-cap">Marker post</span>
+            <span id="np-ref" class="dls-big">—</span>
+          </div>
         </div>
-
-        <div id="np-jct-row" class="jct-row hidden">
-          <span class="jct-lbl">Nearest junction</span>
-          <span class="jct-val"><span id="np-jct">—</span><span id="np-jct-dist" class="jct-dist"></span></span>
-        </div>
-
-        <div id="np-meta" class="meta">Waiting for GPS…</div>
       </div>
+
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-lbl">Distance to post</span>
+          <span class="stat-val"><span id="np-dist">—</span></span>
+        </div>
+        <div id="np-jct-row" class="stat hidden">
+          <span class="stat-lbl">Nearest junction</span>
+          <span class="stat-val"><span id="np-jct">—</span> <span id="np-jct-dist" class="stat-sub"></span></span>
+        </div>
+      </div>
+
+      <div id="np-meta" class="meta">Waiting for GPS…</div>
 
       <label class="switch">
         <span>Prefer my direction of travel</span>
@@ -84,9 +92,20 @@
         <button id="g-find" class="btn btn-primary">Find post</button>
       </div>
 
-      <div id="g-result" class="card result hidden">
-        <div class="eyebrow">Marker post</div>
-        <div id="r-ref" class="ref ref-result">—</div>
+      <div id="g-result" class="result hidden">
+        <div id="r-sign" class="dls">
+          <div id="r-road" class="dls-road">—</div>
+          <div class="dls-grid">
+            <div class="dls-cell">
+              <span class="dls-cap">Cwy</span>
+              <span id="r-cwy" class="dls-big">—</span>
+            </div>
+            <div class="dls-cell dls-cell-wide">
+              <span class="dls-cap">Marker post</span>
+              <span id="r-ref" class="dls-big">—</span>
+            </div>
+          </div>
+        </div>
         <div id="r-detail" class="result-detail"></div>
         <a id="r-waze" class="btn btn-waze" target="_blank" rel="noopener">
           <span class="waze-mark"></span> Open in Waze
