@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0d2235" />
+  <meta name="theme-color" content="#0a0f1a" />
   <title>Marker Post</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" />
@@ -11,62 +11,97 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header id="statusbar">
-    <span id="status" class="status">Starting…</span>
-    <span id="offline" class="badge hidden">OFFLINE</span>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-text">Marker Post<small>Hampshire</small></span>
+    </div>
+    <div class="gps">
+      <span id="gps-dot" class="dot"></span>
+      <span id="status" class="status">Starting</span>
+      <span id="acc" class="acc"></span>
+      <span id="offline" class="pill-offline hidden">OFFLINE</span>
+    </div>
   </header>
 
   <main>
     <!-- NEAREST VIEW -->
     <section id="view-nearest" class="view">
-      <div class="card big">
-        <div class="label">Nearest marker post</div>
+      <div class="instrument">
+        <div class="eyebrow">Nearest marker post</div>
         <div id="np-ref" class="ref">—</div>
-        <div id="np-road" class="road">—</div>
-        <div id="np-dist" class="dist">—</div>
-        <div id="np-jct" class="jct hidden">—</div>
+        <div class="pills">
+          <span id="np-road" class="pill pill-road">—</span>
+          <span id="np-cwy" class="pill">—</span>
+        </div>
+
+        <div class="readout">
+          <div class="readout-val"><span id="np-dist">—</span></div>
+          <div class="readout-lbl">distance to post</div>
+        </div>
+
+        <div id="np-jct-row" class="jct-row hidden">
+          <span class="jct-lbl">Nearest junction</span>
+          <span class="jct-val"><span id="np-jct">—</span><span id="np-jct-dist" class="jct-dist"></span></span>
+        </div>
+
         <div id="np-meta" class="meta">Waiting for GPS…</div>
       </div>
-      <label class="toggle">
+
+      <label class="switch">
+        <span>Prefer my direction of travel</span>
         <input type="checkbox" id="heading-toggle" checked />
-        Prefer my direction of travel
+        <span class="track"><span class="thumb"></span></span>
       </label>
     </section>
 
     <!-- GO TO POST VIEW -->
     <section id="view-goto" class="view hidden">
       <div class="card">
-        <label class="fld">Quick entry (e.g. "M27 13.6 A")
+        <label class="fld">
+          <span class="fld-lbl">Quick entry</span>
           <input id="g-quick" type="text" inputmode="text" autocomplete="off"
-                 placeholder="road  distance  direction" />
+                 placeholder='e.g. "M27 13.6 A"' />
         </label>
-        <hr />
-        <label class="fld">Road
+
+        <div class="divider"><span>or set manually</span></div>
+
+        <label class="fld">
+          <span class="fld-lbl">Road</span>
           <select id="g-road"></select>
         </label>
         <div class="row">
-          <label class="fld">Distance (km)
+          <label class="fld">
+            <span class="fld-lbl">Distance (km)</span>
             <input id="g-dist" type="number" inputmode="decimal" step="0.1" min="0" placeholder="13.6" />
           </label>
-          <label class="fld">Dir
+          <label class="fld fld-narrow">
+            <span class="fld-lbl">Dir</span>
             <select id="g-dir"></select>
           </label>
         </div>
         <div id="g-hint" class="hint"></div>
-        <button id="g-find" class="btn">Find post</button>
+        <button id="g-find" class="btn btn-primary">Find post</button>
+      </div>
 
-        <div id="g-result" class="result hidden">
-          <div class="result-ref"><span id="r-ref">—</span></div>
-          <div id="r-detail" class="result-detail"></div>
-          <a id="r-waze" class="btn waze" target="_blank" rel="noopener">Open in Waze</a>
-        </div>
+      <div id="g-result" class="card result hidden">
+        <div class="eyebrow">Marker post</div>
+        <div id="r-ref" class="ref ref-result">—</div>
+        <div id="r-detail" class="result-detail"></div>
+        <a id="r-waze" class="btn btn-waze" target="_blank" rel="noopener">
+          <span class="waze-mark"></span> Open in Waze
+        </a>
       </div>
     </section>
   </main>
 
-  <nav id="tabs">
-    <button class="tab active" data-view="nearest">Nearest</button>
-    <button class="tab" data-view="goto">Go to post</button>
+  <nav class="tabs">
+    <button class="tab active" data-view="nearest">
+      <span class="tab-ico" aria-hidden="true">◎</span> Nearest
+    </button>
+    <button class="tab" data-view="goto">
+      <span class="tab-ico" aria-hidden="true">➔</span> Go to post
+    </button>
   </nav>
 
   <script src="app.js"></script>

@@ -81,24 +81,39 @@ function nearestJunction(lat, lng, road) {
   return best ? { jct: best, dist: bestD } : null;
 }
 
+// "J5" -> "M27 J5"; "A3093" (connecting road) -> "A3093 jct"
+function junctionLabel(road, jct) {
+  return /^J/.test(jct) ? `${road} ${jct}` : `${jct} jct`;
+}
+
 function renderNearest(lat, lng, heading, speed, accuracy) {
   const useHeading = el("heading-toggle").checked;
   const { post, dist } = findNearest(lat, lng, heading, speed, useHeading);
   if (!post) return;
   el("np-ref").textContent = post.ref;
-  el("np-road").textContent = `${post.road} · carriageway ${post.direction}`;
+  el("np-road").textContent = post.road;
+  el("np-cwy").textContent = `Carriageway ${post.direction}`;
   el("np-dist").textContent = fmtDist(dist);
 
-  const njEl = el("np-jct");
+  const row = el("np-jct-row");
   const nj = nearestJunction(lat, lng, post.road);
   if (nj) {
-    njEl.textContent = `Nearest junction: ${post.road} ${nj.jct.jct} · ${fmtDist(nj.dist)}`;
-    njEl.classList.remove("hidden");
+    el("np-jct").textContent = junctionLabel(post.road, nj.jct.jct);
+    el("np-jct-dist").textContent = fmtDist(nj.dist);
+    row.classList.remove("hidden");
   } else {
-    njEl.classList.add("hidden");
+    row.classList.add("hidden");
   }
-  el("np-meta").textContent =
-    `GPS ±${Math.round(accuracy)} m · updated ${new Date().toLocaleTimeString("en-GB")}`;
+  el("np-meta").textContent = `updated ${new Date().toLocaleTimeString("en-GB")}`;
+}
+
+// GPS quality dot: green = trust it, amber = marginal, red = poor/unknown.
+function setGpsQuality(accuracy) {
+  const dot = el("gps-dot");
+  dot.classList.remove("live", "wait", "err");
+  if (accuracy == null) { dot.classList.add("wait"); return; }
+  el("acc").textContent = `±${Math.round(accuracy)} m`;
+  dot.classList.add(accuracy <= 10 ? "live" : accuracy <= 25 ? "wait" : "err");
 }
 
 function startGeo() {
@@ -106,15 +121,20 @@ function startGeo() {
     el("status").textContent = "No geolocation on this device";
     return;
   }
-  el("status").textContent = "Acquiring GPS…";
+  el("status").textContent = "Acquiring…";
+  el("gps-dot").classList.add("wait");
   navigator.geolocation.watchPosition(
     (pos) => {
       const c = pos.coords;
-      el("status").textContent = "GPS live";
+      el("status").textContent = "Live";
+      setGpsQuality(c.accuracy);
       renderNearest(c.latitude, c.longitude, c.heading, c.speed, c.accuracy);
     },
     (err) => {
-      el("status").textContent = `GPS error: ${err.message}`;
+      el("status").textContent = err.code === 1 ? "Location blocked" : "GPS error";
+      el("acc").textContent = "";
+      el("gps-dot").classList.remove("live", "wait");
+      el("gps-dot").classList.add("err");
     },
     { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
@@ -223,6 +243,7 @@ function switchView(view) {
     t.classList.toggle("active", t.dataset.view === view);
   el("view-nearest").classList.toggle("hidden", view !== "nearest");
   el("view-goto").classList.toggle("hidden", view !== "goto");
+  if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
 }
 
 // ---------- online/offline ----------
@@ -244,6 +265,7 @@ async function init() {
   el("g-quick").addEventListener("input", (e) => parseQuick(e.target.value));
   for (const t of document.querySelectorAll(".tab"))
     t.addEventListener("click", () => switchView(t.dataset.view));
+  if (location.hash === "#goto") switchView("goto");
   window.addEventListener("online", updateOnline);
   window.addEventListener("offline", updateOnline);
   updateOnline();
