@@ -257,6 +257,17 @@ function switchView(view) {
   if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
 }
 
+// ---------- keep screen awake ----------
+let wakeLock = null;
+async function keepAwake() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+  } catch {
+    /* denied or not allowed right now; retried on next visibility/interaction */
+  }
+}
+
 // ---------- online/offline ----------
 function updateOnline() {
   el("offline").classList.toggle("hidden", navigator.onLine);
@@ -290,6 +301,15 @@ async function init() {
   window.addEventListener("online", updateOnline);
   window.addEventListener("offline", updateOnline);
   updateOnline();
+
+  // Keep the screen on while the app is open; re-acquire when tab returns to view
+  // (the lock is auto-released when the page is hidden) or on first touch.
+  keepAwake();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") keepAwake();
+  });
+  document.addEventListener("click", () => { if (!wakeLock) keepAwake(); }, { once: true });
+
   startGeo();
 
   if ("serviceWorker" in navigator) {
