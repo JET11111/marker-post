@@ -176,24 +176,27 @@ function populateRoads() {
   onRoadChange();
 }
 
+// Always offer the standard carriageways (mainline A/B + slip links J/K/L/M),
+// plus any other letters present in the data — so a slip can always be entered.
+const STD_DIRS = ["A", "B", "J", "K", "L", "M"];
+
 function onRoadChange() {
   const road = el("g-road").value;
   const posts = byRoad.get(road) || [];
-  // Order carriageways A,B first, then by how many posts they have (mainline
-  // before sparse slip links), so the default isn't a stray slip carriageway.
+  const present = new Set(posts.map((p) => p.direction));
+  const extras = [...present].filter((d) => !STD_DIRS.includes(d)).sort();
+  const dirs = [...STD_DIRS, ...extras];
+  el("g-dir").innerHTML = dirs.map((d) => `<option value="${d}">${d}</option>`).join("");
+
+  // Default to a carriageway we actually have posts for (prefer A, then B).
   const counts = {};
   for (const p of posts) counts[p.direction] = (counts[p.direction] || 0) + 1;
-  const dirs = [...new Set(posts.map((p) => p.direction))].sort((a, b) => {
-    const pa = a === "A" ? 0 : a === "B" ? 1 : 2;
-    const pb = b === "A" ? 0 : b === "B" ? 1 : 2;
-    if (pa !== pb) return pa - pb;
-    if (counts[b] !== counts[a]) return counts[b] - counts[a];
-    return a.localeCompare(b);
-  });
-  el("g-dir").innerHTML = dirs.map((d) => `<option value="${d}">${d}</option>`).join("");
+  el("g-dir").value = present.has("A") ? "A" : present.has("B") ? "B"
+    : [...present].sort((a, b) => counts[b] - counts[a])[0] || "A";
+
   const ds = posts.map((p) => p.distance).sort((a, b) => a - b);
   el("g-hint").textContent = ds.length
-    ? `${roadLabel(road)}: posts ${ds[0]}–${ds[ds.length - 1]} km, directions ${dirs.join("/")}`
+    ? `${roadLabel(road)}: ${ds[0]}–${ds[ds.length - 1]} km · posts on ${[...present].sort().join("/")}`
     : "";
 }
 
@@ -214,23 +217,29 @@ function findPost() {
     return;
   }
   const posts = byRoad.get(road) || [];
+  const nearestBy = (list, d) =>
+    list.reduce((b, p) => (b && Math.abs(b.distance - d) <= Math.abs(p.distance - d) ? b : p), null);
+
+  const onDir = posts.filter((p) => p.direction === dir);
   const ref = buildRef(dist, dir);
-  let match = posts.find((p) => p.ref === ref && p.direction === dir);
-  const exact = !!match;
-  if (!match) {
-    // nearest by distance on the same carriageway
-    let bestD = Infinity;
-    for (const p of posts) {
-      if (p.direction !== dir) continue;
-      const d = Math.abs(p.distance - dist);
-      if (d < bestD) { bestD = d; match = p; }
-    }
+  let match = onDir.find((p) => p.ref === ref) || null;
+  let mode = match ? "exact" : "";
+  if (!match && onDir.length) {
+    match = nearestBy(onDir, dist);
+    mode = Math.abs(match.distance - dist) <= 0.15 ? "exact" : "offdist";
   }
+  if (!match) {
+    // Carriageway has no posts (e.g. a slip we lack data for): fall back to the
+    // nearest post at this chainage on any carriageway (the adjacent mainline).
+    match = nearestBy(posts, dist);
+    mode = "slip";
+  }
+
   const hero = el("r-hero");
   result.classList.remove("hidden"); // reveal first so fitText can measure width
   if (!match) {
     hero.classList.add("hidden");
-    el("r-detail").textContent = `No ${roadLabel(road)} carriageway ${dir} posts in dataset.`;
+    el("r-detail").textContent = `No ${roadLabel(road)} posts in dataset.`;
     el("r-waze").classList.add("hidden");
     return;
   }
@@ -238,13 +247,15 @@ function findPost() {
   paintSign("r-road", "r-ref", match);
   const off = Math.abs(match.distance - dist);
   const detail = el("r-detail");
-  if (exact || off <= 0.15) {
-    detail.classList.remove("warn");
+  detail.classList.toggle("warn", mode !== "exact");
+  if (mode === "exact") {
     detail.textContent = `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km`;
-  } else {
-    detail.classList.add("warn");
+  } else if (mode === "offdist") {
     detail.textContent =
-      `⚠ No ${roadLabel(road)}/${dir} post at ${dist} km — nearest is ${match.ref} (${match.distance} km, ${off.toFixed(1)} km away). Check the carriageway letter and distance.`;
+      `⚠ No ${roadLabel(road)}/${dir} post at ${dist} km — nearest is ${match.ref} (${match.distance} km, ${off.toFixed(1)} km away). Check the carriageway and distance.`;
+  } else {
+    detail.textContent =
+      `⚠ No marker-post data for ${roadLabel(road)} carriageway ${dir} (slip road). Routing to the nearest mainline post, ${match.ref} at ${match.distance} km — the slip branches off here.`;
   }
   const waze = el("r-waze");
   waze.href = `https://waze.com/ul?ll=${match.lat},${match.lng}&navigate=yes`;
