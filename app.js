@@ -89,9 +89,25 @@ function junctionLabel(road, jct) {
 // Display label (A3M is the A3(M) motorway).
 const roadLabel = (road) => (road === "A3M" ? "A3(M)" : road);
 
+// Shrink text to fit the parent's content width (keeps it as large as possible).
+// The element is centred in a flex column so it's only as wide as its text and
+// overflows the parent — hence we measure against the parent, not the element.
+function fitText(elem, maxPx) {
+  elem.style.fontSize = maxPx + "px";
+  const parent = elem.parentElement;
+  const cs = getComputedStyle(parent);
+  const avail = parent.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const natural = elem.getBoundingClientRect().width;
+  if (avail > 0 && natural > avail) {
+    elem.style.fontSize = `${Math.floor((maxPx * avail) / natural)}px`;
+  }
+}
+
 // Render a post into a hero block (marker post ref + road).
 function paintSign(roadId, refId, post) {
-  el(refId).textContent = post.ref;
+  const refEl = el(refId);
+  refEl.textContent = post.ref;
+  fitText(refEl, 158);
   el(roadId).textContent = roadLabel(post.road);
 }
 
@@ -211,11 +227,11 @@ function findPost() {
     }
   }
   const hero = el("r-hero");
+  result.classList.remove("hidden"); // reveal first so fitText can measure width
   if (!match) {
     hero.classList.add("hidden");
     el("r-detail").textContent = `No ${roadLabel(road)} carriageway ${dir} posts in dataset.`;
     el("r-waze").classList.add("hidden");
-    result.classList.remove("hidden");
     return;
   }
   hero.classList.remove("hidden");
@@ -233,7 +249,6 @@ function findPost() {
   const waze = el("r-waze");
   waze.href = `https://waze.com/ul?ll=${match.lat},${match.lng}&navigate=yes`;
   waze.classList.remove("hidden");
-  result.classList.remove("hidden");
 }
 
 // "M27 13.6 A" / "M27 13.6A" / "P13/6A M27"
@@ -316,6 +331,12 @@ async function init() {
     findPost();
   }
 
+  window.addEventListener("resize", () => {
+    for (const id of ["np-ref", "r-ref"]) {
+      const e = el(id);
+      if (e && e.offsetParent !== null && e.textContent !== "—") fitText(e, 158);
+    }
+  });
   window.addEventListener("online", updateOnline);
   window.addEventListener("offline", updateOnline);
   updateOnline();
