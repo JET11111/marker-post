@@ -89,18 +89,17 @@ function junctionLabel(road, jct) {
 // Display label (A3M is the A3(M) motorway).
 const roadLabel = (road) => (road === "A3M" ? "A3(M)" : road);
 
-// Render a post into a hero block (marker post ref + road + carriageway).
-function paintSign(roadId, refId, cwyId, post) {
+// Render a post into a hero block (marker post ref + road).
+function paintSign(roadId, refId, post) {
   el(refId).textContent = post.ref;
   el(roadId).textContent = roadLabel(post.road);
-  el(cwyId).textContent = post.direction;
 }
 
 function renderNearest(lat, lng, heading, speed, accuracy) {
   const useHeading = el("heading-toggle").checked;
   const { post, dist } = findNearest(lat, lng, heading, speed, useHeading);
   if (!post) return;
-  paintSign("np-road", "np-ref", "np-cwy", post);
+  paintSign("np-road", "np-ref", post);
   el("np-dist").textContent = fmtDist(dist);
 
   const row = el("np-jct-row");
@@ -210,7 +209,7 @@ function findPost() {
     return;
   }
   hero.classList.remove("hidden");
-  paintSign("r-road", "r-ref", "r-cwy", match);
+  paintSign("r-road", "r-ref", match);
   el("r-detail").textContent = exact
     ? `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km`
     : `Nearest match — ${Math.abs(match.distance - dist).toFixed(1)} km off your ${dist} km · ${match.lat.toFixed(5)}, ${match.lng.toFixed(5)}`;
