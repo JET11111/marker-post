@@ -3,19 +3,23 @@
 // ---------- data ----------
 let POSTS = [];
 let JUNCTIONS = [];
+let ERAS = []; // Emergency Refuge Areas — only present on smart-motorway roads.
 const byRoad = new Map();
 
 async function loadData() {
-  const [pRes, jRes] = await Promise.all([
+  const [pRes, jRes, eRes] = await Promise.all([
     fetch("data/posts.json", { cache: "force-cache" }),
     fetch("data/junctions.json", { cache: "force-cache" }),
+    fetch("data/eras.json", { cache: "force-cache" }),
   ]);
   POSTS = await pRes.json();
   JUNCTIONS = await jRes.json();
+  ERAS = await eRes.json();
   for (const p of POSTS) {
     if (!byRoad.has(p.road)) byRoad.set(p.road, []);
     byRoad.get(p.road).push(p);
   }
+  computeTravelBearings();
 }
 
 // ---------- geo ----------
@@ -43,6 +47,52 @@ function angleDiff(a, b) {
   return Math.abs(((a - b + 540) % 360) - 180); // 0..180
 }
 
+// Give each post a travel bearing = the direction traffic flows past it, so we
+// can tell the two (anti-parallel) carriageways apart even though they sit only
+// metres apart. The chainage order only gives the road's geographic line; the
+// flow sign comes from drive-on-the-left geometry: the opposite carriageway is
+// always on your right. We vote per carriageway rather than assuming A/B, since
+// some roads label carriageways differently (e.g. M271 uses L/M).
+function computeTravelBearings() {
+  const groups = new Map(); // "road|dir" -> posts on that carriageway
+  for (const p of POSTS) {
+    const k = `${p.road}|${p.direction}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p);
+  }
+  for (const [k, list] of groups) {
+    if (list.length < 2) continue;
+    list.sort((a, b) => a.distance - b.distance);
+    const [road, dir] = k.split("|");
+    const opp = POSTS.filter((q) => q.road === road && q.direction !== dir);
+    if (!opp.length) continue;
+
+    // Does travel run with increasing chainage? Sample a few posts and check
+    // which side the nearest opposite-carriageway post falls on.
+    let plus = 0, minus = 0;
+    const step = Math.max(1, Math.floor(list.length / 40));
+    for (let i = 1; i < list.length - 1; i += step) {
+      const inc = bearing(list[i - 1].lat, list[i - 1].lng, list[i + 1].lat, list[i + 1].lng);
+      let o = null, od = Infinity;
+      for (const q of opp) {
+        const d = haversine(list[i].lat, list[i].lng, q.lat, q.lng);
+        if (d < od) { od = d; o = q; }
+      }
+      if (!o || od > 60 || od < 3) continue; // need a clean carriageway pair
+      const toOpp = bearing(list[i].lat, list[i].lng, o.lat, o.lng);
+      if (angleDiff(toOpp, inc + 90) < angleDiff(toOpp, inc - 90)) plus++; else minus++;
+    }
+    const flip = minus > plus ? 180 : 0; // travel is against increasing chainage
+
+    for (let i = 0; i < list.length; i++) {
+      const prev = list[Math.max(0, i - 1)];
+      const next = list[Math.min(list.length - 1, i + 1)];
+      if (prev === next) continue;
+      list[i].bearing = (bearing(prev.lat, prev.lng, next.lat, next.lng) + flip + 360) % 360;
+    }
+  }
+}
+
 // Linear scan — a few thousand points is fast enough.
 function findNearest(lat, lng, heading, speed, useHeading) {
   const filter =
@@ -51,7 +101,10 @@ function findNearest(lat, lng, heading, speed, useHeading) {
     bestD = Infinity;
   if (filter) {
     for (const p of POSTS) {
-      if (angleDiff(bearing(lat, lng, p.lat, p.lng), heading) > 120) continue;
+      // Keep posts whose carriageway flows roughly our way; this drops the
+      // opposite carriageway (~180° off) that sits just metres to the side.
+      // Posts with no travel bearing (e.g. single-carriageway slips) stay in.
+      if (p.bearing != null && angleDiff(p.bearing, heading) > 90) continue;
       const d = haversine(lat, lng, p.lat, p.lng);
       if (d < bestD) { bestD = d; best = p; }
     }
@@ -84,6 +137,34 @@ function nearestJunction(lat, lng, road) {
 // "J5" -> "M27 J5"; "A3093" (connecting road) -> "A3093 jct"
 function junctionLabel(road, jct) {
   return /^J/.test(jct) ? `${road} ${jct}` : `${jct} jct`;
+}
+
+// Nearest ERA on the SAME carriageway as the current post. You can't reverse on
+// a motorway, so when heading is reliable we only consider bays AHEAD (within a
+// 90° cone of travel) — if you've passed them all, the row hides. When too slow
+// for a trustworthy heading we fall back to the nearest bay on the carriageway.
+// Only smart-motorway roads have ERAs, so this stays empty off them.
+function nearestERA(lat, lng, road, dir, heading, speed, useHeading) {
+  const onCarriageway = ERAS.filter((e) => e.road === road && e.dir === dir);
+  if (!onCarriageway.length) return null;
+  const canHead =
+    useHeading && heading != null && !Number.isNaN(heading) && speed != null && speed > 2.5;
+
+  let best = null, bestD = Infinity;
+  if (canHead) {
+    for (const e of onCarriageway) {
+      if (angleDiff(bearing(lat, lng, e.lat, e.lng), heading) > 90) continue; // behind us
+      const d = haversine(lat, lng, e.lat, e.lng);
+      if (d < bestD) { bestD = d; best = e; }
+    }
+    // None ahead → we've passed the last bay; show nothing rather than mislead.
+    return best ? { era: best, dist: bestD, ahead: true } : null;
+  }
+  for (const e of onCarriageway) {
+    const d = haversine(lat, lng, e.lat, e.lng);
+    if (d < bestD) { bestD = d; best = e; }
+  }
+  return best ? { era: best, dist: bestD, ahead: false } : null;
 }
 
 // Display label (A3M is the A3(M) motorway).
@@ -126,6 +207,18 @@ function renderNearest(lat, lng, heading, speed, accuracy) {
     row.classList.remove("hidden");
   } else {
     row.classList.add("hidden");
+  }
+
+  // ERA row: only shows on smart motorways (the only roads with ERA data),
+  // and prefers the nearest bay ahead in the direction of travel.
+  const eraRow = el("np-era-row");
+  const ne = nearestERA(lat, lng, post.road, post.direction, heading, speed, useHeading);
+  if (ne) {
+    el("np-era").textContent = `≈ ${buildRef(ne.era.km, ne.era.dir)}`;
+    el("np-era-dist").textContent = ne.ahead ? `${fmtDist(ne.dist)} ahead` : fmtDist(ne.dist);
+    eraRow.classList.remove("hidden");
+  } else {
+    eraRow.classList.add("hidden");
   }
   el("np-meta").textContent = `updated ${new Date().toLocaleTimeString("en-GB")}`;
 }
