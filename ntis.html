@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0f1a" />
+  <title>NTIS Data · Marker Post (experimental)</title>
+  <link rel="icon" href="icons/icon-192.png" />
+  <!-- Reuses the app's shared theme (read-only) plus a page-specific sheet. -->
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="ntis.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-text">NTIS Data<small>Experimental</small></span>
+    </div>
+    <div class="gps">
+      <span id="feed-dot" class="dot wait"></span>
+      <span id="feed-status" class="status">No feed</span>
+      <span id="offline" class="pill-offline hidden">OFFLINE</span>
+    </div>
+  </header>
+
+  <div class="expbar">
+    Standalone sandbox — not wired into the main app. Live NTIS feeds need a
+    National Highways DATEX II account and (from a browser) a CORS-enabled
+    proxy. Use <b>Load sample</b> to explore the layout right now.
+  </div>
+
+  <main>
+    <!-- ---------- data source ---------- -->
+    <section class="card">
+      <label class="fld">
+        <span class="fld-lbl">DATEX II feed URL</span>
+        <input id="src-url" type="url" inputmode="url" autocomplete="off"
+               placeholder="https://your-proxy.example/ntis/events.xml" />
+      </label>
+      <div class="hint" id="src-hint">
+        Points at a DATEX II <i>SituationPublication</i> (traffic events). Must be
+        same-origin or served through a CORS+auth proxy.
+      </div>
+      <div class="btn-row">
+        <button id="btn-fetch" class="btn btn-primary">Fetch feed</button>
+        <button id="btn-sample" class="btn btn-ghost">Load sample</button>
+      </div>
+      <label id="drop" class="drop">
+        <input id="file-input" type="file" accept=".xml,application/xml,text/xml" hidden />
+        <span>Drop a DATEX II <b>.xml</b> here, or tap to choose a file</span>
+      </label>
+    </section>
+
+    <!-- ---------- filters ---------- -->
+    <section id="filters" class="card hidden">
+      <div class="row">
+        <label class="fld">
+          <span class="fld-lbl">Road</span>
+          <select id="f-road"><option value="">All roads</option></select>
+        </label>
+        <label class="fld">
+          <span class="fld-lbl">Severity</span>
+          <select id="f-sev">
+            <option value="">Any</option>
+            <option value="highest">Highest</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+        </label>
+      </div>
+      <label class="fld" style="margin-bottom:0">
+        <span class="fld-lbl">Search</span>
+        <input id="f-text" type="text" autocomplete="off" placeholder="delay, lane, roadworks…" />
+      </label>
+    </section>
+
+    <div id="summary" class="meta"></div>
+    <section id="events" class="events"></section>
+    <div id="empty" class="empty hidden">No matching events.</div>
+  </main>
+
+  <nav class="tabs">
+    <a class="tab" href="index.html"><span class="tab-ico" aria-hidden="true">◎</span> Marker Post</a>
+    <button class="tab active"><span class="tab-ico" aria-hidden="true">≋</span> NTIS Data</button>
+  </nav>
+
+  <script src="ntis.js"></script>
+</body>
+</html>
