@@ -190,6 +190,7 @@ function ingest(xmlString, label) {
 async function fetchFeed() {
   const url = el("src-url").value.trim();
   if (!url) { setStatus("Enter a feed URL first", "err"); return; }
+  try { localStorage.setItem("ntis-feed-url", url); } catch { /* private mode */ }
   setStatus("Fetching…", "wait");
   try {
     const res = await fetch(url, { headers: { Accept: "application/xml" } });
@@ -216,6 +217,12 @@ function updateOnline() {
 
 // ---------- init ----------
 function init() {
+  // Restore a previously used feed/proxy URL so it only has to be pasted once.
+  try {
+    const saved = localStorage.getItem("ntis-feed-url");
+    if (saved) el("src-url").value = saved;
+  } catch { /* storage blocked */ }
+
   el("btn-fetch").addEventListener("click", fetchFeed);
   el("btn-sample").addEventListener("click", () => ingest(SAMPLE_DATEX, "Sample data"));
   for (const id of ["f-road", "f-sev", "f-text"]) el(id).addEventListener("input", render);

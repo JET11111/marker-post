@@ -1,0 +1,22 @@
+# Cloudflare Worker config for the NTIS proxy.
+# Deploy with:  wrangler deploy   (see proxy/README.md for the full walkthrough)
+
+name = "ntis-proxy"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+[vars]
+# The DATEX II feed URL from your National Highways / NTIS account docs.
+# Replace this placeholder before deploying.
+NTIS_FEED_URL = "https://REPLACE-WITH-YOUR-NTIS-DATEX-II-FEED-URL"
+
+# Only allow the published page to call this proxy. Use "*" while testing.
+ALLOW_ORIGIN = "https://jet11111.github.io"
+
+# Optional: expose several feeds by name, then call ?feed=events / ?feed=vms
+# NTIS_FEEDS = '{"events":"https://.../events.xml","vms":"https://.../signs.xml"}'
+
+# NOTE: NTIS_USER and NTIS_PASS are NOT set here — they are secrets you add with
+#   wrangler secret put NTIS_USER
+#   wrangler secret put NTIS_PASS
+# so your login never lands in this file or in git.
