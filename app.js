@@ -4,6 +4,8 @@
 let POSTS = [];
 let JUNCTIONS = [];
 let ERAS = []; // Emergency Refuge Areas — only present on smart-motorway roads.
+let VMS = null; // Live VMS sign statuses (data/vms.json, refreshed by CI).
+let lastPos = null; // Latest GPS fix, for distance-to-sign sorting.
 const byRoad = new Map();
 
 async function loadData() {
@@ -244,6 +246,7 @@ function startGeo() {
       const c = pos.coords;
       el("status").textContent = "Live";
       setGpsQuality(c.accuracy);
+      lastPos = { lat: c.latitude, lng: c.longitude };
       renderNearest(c.latitude, c.longitude, c.heading, c.speed, c.accuracy);
     },
     (err) => {
@@ -385,13 +388,97 @@ function parseQuick(s) {
   }
 }
 
+// ---------- VMS signs view ----------
+// data/vms.json is produced by scripts/fetch-vms.mjs (GitHub Actions, every
+// ~10 min). The service worker keeps the last good copy for offline use.
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+
+async function loadVms() {
+  try {
+    const res = await fetch("data/vms.json", { cache: "no-cache" });
+    VMS = await res.json();
+  } catch {
+    /* offline with nothing cached — keep whatever we had */
+  }
+  renderSigns();
+}
+
+function fmtAge(min) {
+  if (min < 1.5) return "just now";
+  if (min < 90) return `${Math.round(min)} min ago`;
+  const h = min / 60;
+  if (h < 36) return `${h.toFixed(h < 10 ? 1 : 0)} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+function renderSigns() {
+  const list = el("s-list");
+  if (!VMS || !VMS.fetched || !VMS.signs) {
+    el("s-meta").textContent = VMS && !VMS.fetched
+      ? "No sign data yet — the update feed hasn't run."
+      : "No sign data available.";
+    el("s-stale").classList.add("hidden");
+    list.innerHTML = "";
+    return;
+  }
+  const age = (Date.now() - new Date(VMS.fetched).getTime()) / 60000;
+  el("s-meta").textContent = `${VMS.signs.length} signs · updated ${fmtAge(age)}`;
+  const stale = el("s-stale");
+  if (age > 30) {
+    stale.textContent = `⚠ Sign data is ${fmtAge(age).replace(" ago", "")} old — messages may have changed since.`;
+    stale.classList.remove("hidden");
+  } else {
+    stale.classList.add("hidden");
+  }
+
+  // Nearest-first when we have a fix; otherwise the feed's road order.
+  const signs = VMS.signs.map((s) => ({
+    ...s,
+    d: lastPos && s.lat != null ? haversine(lastPos.lat, lastPos.lng, s.lat, s.lng) : null,
+  }));
+  if (lastPos) signs.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
+  list.innerHTML = signs.map(signCard).join("");
+}
+
+function signCard(s) {
+  const off = s.status !== "working"; // blank/covered/notWorking — flag it
+  const panel = s.lines && s.lines.length
+    ? s.lines.map((l) => `<div class="sign-line">${escapeHtml(l)}</div>`).join("")
+    : `<div class="sign-blank">blank</div>`;
+
+  // Locate the sign against our own dataset: the nearest marker post.
+  let near = null;
+  if (s.lat != null) {
+    const { post, dist } = findNearest(s.lat, s.lng, null, null, false);
+    if (post && dist <= 250) near = post;
+  }
+  const bits = [];
+  if (near) bits.push(`near ${near.ref}`);
+  if (s.d != null) bits.push(`${fmtDist(s.d)} from you`);
+  const set = s.setAt && !Number.isNaN(Date.parse(s.setAt))
+    ? new Date(s.setAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    : null;
+  if (set && s.lines && s.lines.length) bits.push(`set ${set}`);
+
+  return `
+  <div class="sign-card${off ? " off" : ""}">
+    <div class="sign-panel">${panel}</div>
+    <div class="sign-info">
+      <div class="sign-road"><b>${escapeHtml(roadLabel(s.road || "?"))}</b>${s.dir ? ` ${escapeHtml(s.dir)}` : ""}${off ? ` · <span class="warn">${escapeHtml(s.status)}</span>` : ""}</div>
+      <div class="sign-sub">${escapeHtml(s.id)}${bits.length ? " · " + bits.join(" · ") : ""}</div>
+    </div>
+  </div>`;
+}
+
 // ---------- tabs ----------
 function switchView(view) {
   for (const t of document.querySelectorAll(".tab"))
     t.classList.toggle("active", t.dataset.view === view);
-  el("view-nearest").classList.toggle("hidden", view !== "nearest");
-  el("view-goto").classList.toggle("hidden", view !== "goto");
+  for (const v of ["nearest", "signs", "goto"])
+    el(`view-${v}`).classList.toggle("hidden", v !== view);
   if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
+  if (view === "signs") renderSigns(); // re-sort against the latest fix
 }
 
 // ---------- keep screen awake ----------
@@ -424,7 +511,14 @@ async function init() {
   el("g-quick").addEventListener("input", (e) => parseQuick(e.target.value));
   for (const t of document.querySelectorAll(".tab"))
     t.addEventListener("click", () => switchView(t.dataset.view));
-  if (location.hash === "#goto") switchView("goto");
+  if (["#goto", "#signs"].includes(location.hash)) switchView(location.hash.slice(1));
+
+  // VMS signs: initial load, manual refresh, and a slow background re-poll.
+  loadVms();
+  el("s-refresh").addEventListener("click", loadVms);
+  setInterval(() => {
+    if (!el("view-signs").classList.contains("hidden")) loadVms();
+  }, 5 * 60 * 1000);
 
   // Deep link: ?q=M27 13.6 A  -> open go-to, prefill and look up.
   const q = new URLSearchParams(location.search).get("q");

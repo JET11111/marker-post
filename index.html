@@ -59,6 +59,19 @@
       </label>
     </section>
 
+    <!-- VMS SIGNS VIEW -->
+    <section id="view-signs" class="view hidden">
+      <div class="signs-head card">
+        <div class="signs-title">
+          <div class="eyebrow">VMS signs</div>
+          <div id="s-meta" class="signs-meta">Loading…</div>
+        </div>
+        <button id="s-refresh" class="btn-mini" type="button">↻ Refresh</button>
+      </div>
+      <div id="s-stale" class="stale hidden"></div>
+      <div id="s-list" class="signs-list"></div>
+    </section>
+
     <!-- GO TO POST VIEW -->
     <section id="view-goto" class="view hidden">
       <div class="card">
@@ -107,6 +120,9 @@
   <nav class="tabs">
     <button class="tab active" data-view="nearest">
       <span class="tab-ico" aria-hidden="true">◎</span> Nearest
+    </button>
+    <button class="tab" data-view="signs">
+      <span class="tab-ico" aria-hidden="true">▥</span> Signs
     </button>
     <button class="tab" data-view="goto">
       <span class="tab-ico" aria-hidden="true">➔</span> Go to post

@@ -164,6 +164,42 @@ select {
 .result-detail { color: var(--muted); font-size: 14.5px; line-height: 1.5; text-align: center; }
 .result-detail.warn { color: var(--amber); font-weight: 600; }
 
+/* ---------- VMS signs ---------- */
+.signs-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.signs-meta { color: var(--muted); font-size: 13px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.btn-mini {
+  flex: none; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line);
+  background: #0a121f; color: var(--text); font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.btn-mini:active { transform: translateY(1px); }
+.stale {
+  background: #3a2b07; border: 1px solid #7a5a10; color: var(--amber-soft);
+  font-size: 13.5px; padding: 10px 14px; border-radius: 12px; line-height: 1.4;
+}
+.signs-list { display: flex; flex-direction: column; gap: 10px; }
+.sign-card {
+  display: flex; gap: 12px; align-items: center;
+  background: var(--surface); border: 1px solid var(--line-soft);
+  border-radius: 14px; padding: 10px;
+}
+.sign-panel {
+  flex: 0 0 46%; min-height: 58px; min-width: 0;
+  display: flex; flex-direction: column; justify-content: center;
+  background: #05070d; border: 2px solid #2c3040; border-radius: 8px; padding: 8px 10px;
+}
+.sign-line {
+  color: var(--amber); font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase;
+  text-align: center; line-height: 1.45;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sign-blank { color: var(--muted-2); text-align: center; font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+.sign-card.off .sign-panel { opacity: .55; }
+.sign-info { min-width: 0; }
+.sign-road { font-size: 16px; }
+.sign-road .warn { color: var(--red); font-weight: 700; }
+.sign-sub { color: var(--muted); font-size: 12.5px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
+
 /* ---------- tabs ---------- */
 .tabs {
   display: flex; gap: 8px; padding: 8px 8px calc(env(safe-area-inset-bottom) + 8px);

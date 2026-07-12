@@ -1,0 +1,40 @@
+# Polls the National Highways Digital VMS API and commits data/vms.json when
+# the signs change. Needs the DVMS_KEY repository secret (a subscription key
+# from developer.data.nationalhighways.co.uk for the Digital VMS product).
+name: vms-data
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: write # to dispatch the Pages deploy after committing
+concurrency:
+  group: vms-data
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch VMS statuses
+        env:
+          DVMS_KEY: ${{ secrets.DVMS_KEY }}
+        run: node scripts/fetch-vms.mjs
+      - name: Commit if changed
+        id: commit
+        run: |
+          if ! git diff --quiet -- data/vms.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/vms.json
+            git commit -m "vms: update sign data"
+            git push
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          fi
+      # Pushes made with GITHUB_TOKEN don't fire on:push workflows, so kick
+      # the Pages deploy explicitly or the live site would never update.
+      - name: Redeploy Pages
+        if: steps.commit.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run pages.yml --ref master
