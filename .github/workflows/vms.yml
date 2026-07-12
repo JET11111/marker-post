@@ -4,7 +4,9 @@
 name: vms-data
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    # Every 5 min, offset from :00/:05 — GitHub delays round-number crons most.
+    # Actual cadence still slips under load; the app shows true check age.
+    - cron: "3-58/5 * * * *"
   workflow_dispatch:
 permissions:
   contents: write

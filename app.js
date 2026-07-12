@@ -394,6 +394,8 @@ function parseQuick(s) {
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
+let vmsChecked = null; // when the poller last successfully checked the API
+
 async function loadVms() {
   try {
     const res = await fetch("data/vms.json", { cache: "no-cache" });
@@ -401,6 +403,15 @@ async function loadVms() {
   } catch {
     /* offline with nothing cached — keep whatever we had */
   }
+  // vms.json only changes when signs change, so its timestamp is "last
+  // change", not "last check". Ask GitHub when the poller last ran green
+  // (public API, CORS-friendly); offline this just fails quietly.
+  try {
+    const r = await fetch(
+      "https://api.github.com/repos/JET11111/marker-post/actions/workflows/vms.yml/runs?status=success&per_page=1");
+    const runs = (await r.json()).workflow_runs;
+    if (runs && runs.length) vmsChecked = new Date(runs[0].updated_at).getTime();
+  } catch { /* keep last known */ }
   renderSigns();
 }
 
@@ -460,9 +471,13 @@ function renderSigns() {
     return;
   }
   const age = (Date.now() - new Date(VMS.fetched).getTime()) / 60000;
+  // Staleness = time since the poller last checked (if known), not since the
+  // signs last changed — a quiet hour on the network isn't stale data.
+  const checkedAge = vmsChecked ? (Date.now() - vmsChecked) / 60000 : null;
+  const effAge = checkedAge ?? age;
   const stale = el("s-stale");
-  if (age > 30) {
-    stale.textContent = `⚠ Sign data is ${fmtAge(age).replace(" ago", "")} old — messages may have changed since.`;
+  if (effAge > 30) {
+    stale.textContent = `⚠ No successful update for ${fmtAge(effAge).replace(" ago", "")} — messages may have changed since.`;
     stale.classList.remove("hidden");
   } else {
     stale.classList.add("hidden");
@@ -510,7 +525,10 @@ function renderSigns() {
     }));
   if (lastPos) signs.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
 
-  el("s-meta").textContent = `${signs.length} of ${VMS.signs.length} signs · updated ${fmtAge(age)}`;
+  el("s-meta").textContent = `${signs.length} of ${VMS.signs.length} signs · ` +
+    (checkedAge != null
+      ? `checked ${fmtAge(checkedAge)} · last change ${fmtAge(age)}`
+      : `updated ${fmtAge(age)}`);
   list.innerHTML = signs.length
     ? signs.map(signCard).join("")
     : `<div class="signs-empty">No signs match the filter${vmsFilter.blanks ? "" : " (blank signs are hidden)"}.</div>`;
@@ -554,7 +572,7 @@ function switchView(view) {
   for (const v of ["nearest", "signs", "goto"])
     el(`view-${v}`).classList.toggle("hidden", v !== view);
   if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
-  if (view === "signs") renderSigns(); // re-sort against the latest fix
+  if (view === "signs") loadVms(); // refresh data + check age on every open
 }
 
 // ---------- keep screen awake ----------
