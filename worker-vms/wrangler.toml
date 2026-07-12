@@ -1,0 +1,7 @@
+# Cloudflare Worker config for the live VMS relay.
+# Deploy:  npx wrangler deploy
+# The NH subscription key is a secret, never in this file:
+#   npx wrangler secret put DVMS_KEY
+name = "vms-live"
+main = "worker.js"
+compatibility_date = "2026-07-01"

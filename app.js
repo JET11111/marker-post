@@ -394,9 +394,29 @@ function parseQuick(s) {
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (ch) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
 
-let vmsChecked = null; // when the poller last successfully checked the API
+const VMS_LIVE_URL = "https://vms-live.got2005lhs.workers.dev/";
+let vmsChecked = null; // when the sign data was last successfully checked
+let vmsLive = false;   // latest data came from the live relay
 
 async function loadVms() {
+  // Live relay first (sub-minute freshness, ~20 s edge cache); fall back to
+  // the repo snapshot (works offline via the SW) if the relay is unreachable.
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 8000);
+    const res = await fetch(VMS_LIVE_URL, { signal: ctl.signal });
+    clearTimeout(t);
+    if (!res.ok) throw new Error(res.status);
+    const j = await res.json();
+    if (!j.signs) throw new Error("bad payload");
+    VMS = j;
+    vmsLive = true;
+    vmsChecked = Date.now();
+    renderSigns();
+    return;
+  } catch {
+    vmsLive = false;
+  }
   try {
     const res = await fetch("data/vms.json", { cache: "no-cache" });
     VMS = await res.json();
@@ -526,9 +546,10 @@ function renderSigns() {
   if (lastPos) signs.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
 
   el("s-meta").textContent = `${signs.length} of ${VMS.signs.length} signs · ` +
-    (checkedAge != null
-      ? `checked ${fmtAge(checkedAge)} · last change ${fmtAge(age)}`
-      : `updated ${fmtAge(age)}`);
+    (vmsLive ? `LIVE · updated ${fmtAge(age)}`
+      : checkedAge != null
+        ? `checked ${fmtAge(checkedAge)} · last change ${fmtAge(age)}`
+        : `updated ${fmtAge(age)}`);
   list.innerHTML = signs.length
     ? signs.map(signCard).join("")
     : `<div class="signs-empty">No signs match the filter${vmsFilter.blanks ? "" : " (blank signs are hidden)"}.</div>`;
@@ -607,12 +628,14 @@ async function init() {
     t.addEventListener("click", () => switchView(t.dataset.view));
   if (["#goto", "#signs"].includes(location.hash)) switchView(location.hash.slice(1));
 
-  // VMS signs: initial load, manual refresh, and a slow background re-poll.
+  // VMS signs: initial load, manual refresh, and a ~30 s live re-poll while
+  // the tab is open and on screen (the relay's edge cache absorbs the rest).
   loadVms();
   el("s-refresh").addEventListener("click", loadVms);
   setInterval(() => {
-    if (!el("view-signs").classList.contains("hidden")) loadVms();
-  }, 5 * 60 * 1000);
+    if (!el("view-signs").classList.contains("hidden") &&
+        document.visibilityState === "visible") loadVms();
+  }, 30 * 1000);
 
   // Deep link: ?q=M27 13.6 A  -> open go-to, prefill and look up.
   const q = new URLSearchParams(location.search).get("q");
