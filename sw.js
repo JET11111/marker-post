@@ -1,5 +1,5 @@
 // Service worker: precache app shell + dataset for full offline use.
-const CACHE = "markerpost-v14";
+const CACHE = "markerpost-v15";
 const ASSETS = [
   ".",
   "index.html",

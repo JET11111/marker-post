@@ -421,6 +421,33 @@ try {
 } catch { /* corrupt state — fall back to defaults */ }
 const saveVmsFilter = () => localStorage.setItem(VMS_FILTER_KEY, JSON.stringify(vmsFilter));
 
+// Filter groups: each sign belongs to its road, except the M3, which splits at
+// J7 into the usual patch (J7–14) and the northern end (J4–7). The boundary
+// chainage comes from snapping J7 to its nearest post; each sign's chainage
+// from snapping the sign the same way.
+let m3SplitKm = null;
+const signKm = new Map(); // sign id -> chainage on its road
+function signGroup(s) {
+  if (s.road !== "M3" || s.lat == null) return s.road;
+  const m3 = byRoad.get("M3") || [];
+  if (!m3.length) return s.road;
+  const snap = (lat, lng) => {
+    let best = null, bd = Infinity;
+    for (const p of m3) {
+      const d = haversine(lat, lng, p.lat, p.lng);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best.distance;
+  };
+  if (m3SplitKm == null) {
+    const j7 = JUNCTIONS.find((j) => j.road === "M3" && j.jct === "J7");
+    if (!j7) return s.road;
+    m3SplitKm = snap(j7.lat, j7.lng);
+  }
+  if (!signKm.has(s.id)) signKm.set(s.id, snap(s.lat, s.lng));
+  return signKm.get(s.id) >= m3SplitKm - 0.3 ? "M3 J7-14" : "M3 J4-7";
+}
+
 function renderSigns() {
   const list = el("s-list");
   if (!VMS || !VMS.fetched || !VMS.signs) {
@@ -443,7 +470,7 @@ function renderSigns() {
 
   // Filter chips: one per road (motorways first) + a blank-signs toggle.
   const counts = {};
-  for (const s of VMS.signs) counts[s.road] = (counts[s.road] || 0) + 1;
+  for (const s of VMS.signs) { const g = signGroup(s); counts[g] = (counts[g] || 0) + 1; }
   const roads = Object.keys(counts).sort((a, b) => {
     const ma = a[0] === "M", mb = b[0] === "M";
     if (ma !== mb) return ma ? -1 : 1;
@@ -456,7 +483,7 @@ function renderSigns() {
   chips.innerHTML = [
     `<button class="chip${sel.length ? "" : " on"}" data-road="*">All</button>`,
     ...roads.map((r) =>
-      `<button class="chip${sel.includes(r) ? " on" : ""}" data-road="${r}">${roadLabel(r)}<small>${counts[r]}</small></button>`),
+      `<button class="chip${sel.includes(r) ? " on" : ""}" data-road="${r}">${roadLabel(r).replace("-", "–")}<small>${counts[r]}</small></button>`),
     `<button class="chip${vmsFilter.blanks ? " on" : ""}" data-road="~">blank signs</button>`,
   ].join("");
   for (const b of chips.querySelectorAll(".chip")) {
@@ -475,7 +502,7 @@ function renderSigns() {
   // Apply filters; nearest-first when we have a fix, else the feed's road order.
   const signs = VMS.signs
     .filter((s) =>
-      (!sel.length || sel.includes(s.road)) &&
+      (!sel.length || sel.includes(signGroup(s))) &&
       (vmsFilter.blanks || (s.lines && s.lines.length)))
     .map((s) => ({
       ...s,
