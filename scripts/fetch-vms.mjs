@@ -65,16 +65,18 @@ for (let page = 0; url && page < 30; page++) {
         }
       }
 
+      // The feed pads some values (e.g. workingStatus "working ") — trim all.
+      const t = (v) => String(v == null ? "" : v).trim();
       signs.push({
-        id: ext.externalIdentifier ||
-          (ctrl.vmsControllerReference && ctrl.vmsControllerReference.idG) || "?",
-        road: (sup && sup.roadInformation && sup.roadInformation[0] &&
-          sup.roadInformation[0].roadName) || (sup && sup.locationDescription) || "",
-        dir: (supExt && (DIR[supExt.direction] || supExt.direction)) || "",
+        id: t(ext.externalIdentifier ||
+          (ctrl.vmsControllerReference && ctrl.vmsControllerReference.idG)) || "?",
+        road: t((sup && sup.roadInformation && sup.roadInformation[0] &&
+          sup.roadInformation[0].roadName) || (sup && sup.locationDescription)),
+        dir: t(supExt && (DIR[t(supExt.direction)] || supExt.direction)),
         lat: co ? co.latitude : null,
         lng: co ? co.longitude : null,
-        size: ext.description || "",
-        status: st.workingStatus || "unknown",
+        size: t(ext.description),
+        status: t(st.workingStatus) || "unknown",
         lines,
         setAt,
       });
@@ -83,10 +85,23 @@ for (let page = 0; url && page < 30; page++) {
   url = next;
 }
 
-signs.sort((a, b) =>
+// The feed repeats some controllers verbatim — keep one record per sign,
+// preferring the one with a message, then the most recently set.
+const byId = new Map();
+for (const s of signs) {
+  const key = s.id === "?" ? `?${s.lat},${s.lng}` : s.id;
+  const cur = byId.get(key);
+  if (!cur ||
+      (s.lines.length && !cur.lines.length) ||
+      (s.lines.length === cur.lines.length && (s.setAt || "") > (cur.setAt || "")))
+    byId.set(key, s);
+}
+const unique = [...byId.values()];
+
+unique.sort((a, b) =>
   a.road.localeCompare(b.road, undefined, { numeric: true }) || a.id.localeCompare(b.id));
 
-const out = { fetched: new Date().toISOString(), publicationTime, count: signs.length, signs };
+const out = { fetched: new Date().toISOString(), publicationTime, count: unique.length, signs: unique };
 
 // Skip the write (=> no commit, no Pages rebuild) when only timestamps moved.
 let prev = null;

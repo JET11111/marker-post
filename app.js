@@ -412,6 +412,15 @@ function fmtAge(min) {
   return `${Math.round(h / 24)} days ago`;
 }
 
+// Filter state, persisted so the tab opens the way you left it.
+// roads: [] = all roads; blanks: false hides signs displaying nothing.
+const VMS_FILTER_KEY = "vms-filter";
+let vmsFilter = { roads: [], blanks: false };
+try {
+  vmsFilter = { ...vmsFilter, ...JSON.parse(localStorage.getItem(VMS_FILTER_KEY) || "{}") };
+} catch { /* corrupt state — fall back to defaults */ }
+const saveVmsFilter = () => localStorage.setItem(VMS_FILTER_KEY, JSON.stringify(vmsFilter));
+
 function renderSigns() {
   const list = el("s-list");
   if (!VMS || !VMS.fetched || !VMS.signs) {
@@ -419,11 +428,11 @@ function renderSigns() {
       ? "No sign data yet — the update feed hasn't run."
       : "No sign data available.";
     el("s-stale").classList.add("hidden");
+    el("s-filters").classList.add("hidden");
     list.innerHTML = "";
     return;
   }
   const age = (Date.now() - new Date(VMS.fetched).getTime()) / 60000;
-  el("s-meta").textContent = `${VMS.signs.length} signs · updated ${fmtAge(age)}`;
   const stale = el("s-stale");
   if (age > 30) {
     stale.textContent = `⚠ Sign data is ${fmtAge(age).replace(" ago", "")} old — messages may have changed since.`;
@@ -432,17 +441,57 @@ function renderSigns() {
     stale.classList.add("hidden");
   }
 
-  // Nearest-first when we have a fix; otherwise the feed's road order.
-  const signs = VMS.signs.map((s) => ({
-    ...s,
-    d: lastPos && s.lat != null ? haversine(lastPos.lat, lastPos.lng, s.lat, s.lng) : null,
-  }));
+  // Filter chips: one per road (motorways first) + a blank-signs toggle.
+  const counts = {};
+  for (const s of VMS.signs) counts[s.road] = (counts[s.road] || 0) + 1;
+  const roads = Object.keys(counts).sort((a, b) => {
+    const ma = a[0] === "M", mb = b[0] === "M";
+    if (ma !== mb) return ma ? -1 : 1;
+    return a.localeCompare(b, undefined, { numeric: true });
+  });
+  vmsFilter.roads = vmsFilter.roads.filter((r) => counts[r]); // drop stale roads
+  const chips = el("s-filters");
+  chips.classList.remove("hidden");
+  const sel = vmsFilter.roads;
+  chips.innerHTML = [
+    `<button class="chip${sel.length ? "" : " on"}" data-road="*">All</button>`,
+    ...roads.map((r) =>
+      `<button class="chip${sel.includes(r) ? " on" : ""}" data-road="${r}">${roadLabel(r)}<small>${counts[r]}</small></button>`),
+    `<button class="chip${vmsFilter.blanks ? " on" : ""}" data-road="~">blank signs</button>`,
+  ].join("");
+  for (const b of chips.querySelectorAll(".chip")) {
+    b.addEventListener("click", () => {
+      const r = b.dataset.road;
+      if (r === "*") vmsFilter.roads = [];
+      else if (r === "~") vmsFilter.blanks = !vmsFilter.blanks;
+      else vmsFilter.roads = vmsFilter.roads.includes(r)
+        ? vmsFilter.roads.filter((x) => x !== r)
+        : [...vmsFilter.roads, r];
+      saveVmsFilter();
+      renderSigns();
+    });
+  }
+
+  // Apply filters; nearest-first when we have a fix, else the feed's road order.
+  const signs = VMS.signs
+    .filter((s) =>
+      (!sel.length || sel.includes(s.road)) &&
+      (vmsFilter.blanks || (s.lines && s.lines.length)))
+    .map((s) => ({
+      ...s,
+      d: lastPos && s.lat != null ? haversine(lastPos.lat, lastPos.lng, s.lat, s.lng) : null,
+    }));
   if (lastPos) signs.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
-  list.innerHTML = signs.map(signCard).join("");
+
+  el("s-meta").textContent = `${signs.length} of ${VMS.signs.length} signs · updated ${fmtAge(age)}`;
+  list.innerHTML = signs.length
+    ? signs.map(signCard).join("")
+    : `<div class="signs-empty">No signs match the filter${vmsFilter.blanks ? "" : " (blank signs are hidden)"}.</div>`;
 }
 
 function signCard(s) {
-  const off = s.status !== "working"; // blank/covered/notWorking — flag it
+  const status = String(s.status || "").trim();
+  const off = status !== "working"; // blank/covered/notWorking — flag it
   const panel = s.lines && s.lines.length
     ? s.lines.map((l) => `<div class="sign-line">${escapeHtml(l)}</div>`).join("")
     : `<div class="sign-blank">blank</div>`;
@@ -465,7 +514,7 @@ function signCard(s) {
   <div class="sign-card${off ? " off" : ""}">
     <div class="sign-panel">${panel}</div>
     <div class="sign-info">
-      <div class="sign-road"><b>${escapeHtml(roadLabel(s.road || "?"))}</b>${s.dir ? ` ${escapeHtml(s.dir)}` : ""}${off ? ` · <span class="warn">${escapeHtml(s.status)}</span>` : ""}</div>
+      <div class="sign-road"><b>${escapeHtml(roadLabel(s.road || "?"))}</b>${s.dir ? ` ${escapeHtml(s.dir)}` : ""}${off ? ` · <span class="warn">${escapeHtml(status)}</span>` : ""}</div>
       <div class="sign-sub">${escapeHtml(s.id)}${bits.length ? " · " + bits.join(" · ") : ""}</div>
     </div>
   </div>`;
