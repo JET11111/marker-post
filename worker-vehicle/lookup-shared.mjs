@@ -122,9 +122,11 @@ export function buildPayload(reg, dvla, dvsa, now = new Date()) {
   const m = dvsa.ok ? dvsa.data : null;
   const notes = [];
   if (!dvla.ok) {
-    notes.push(dvla.status === 404
-      ? "No DVLA record for this registration."
-      : "DVLA lookup unavailable — tax/class missing.");
+    notes.push(dvla.status === -1
+      ? "Tax status & weight class arrive when DVLA API access reopens."
+      : dvla.status === 404
+        ? "No DVLA record for this registration."
+        : "DVLA lookup unavailable — tax/class missing.");
   }
   if (!dvsa.ok) {
     notes.push(dvsa.status === 404

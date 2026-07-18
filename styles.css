@@ -211,6 +211,42 @@ select {
 .sign-road .warn { color: var(--red); font-weight: 700; }
 .sign-sub { color: var(--muted); font-size: 12.5px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; }
 
+/* ---------- vehicle lookup ---------- */
+.plate-input {
+  background: #f7c500; color: #0b0b0b; border: 2px solid #0b0b0b;
+  font-weight: 800; font-size: 27px; letter-spacing: 3px; text-transform: uppercase;
+  text-align: center; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.plate-input:focus { border-color: var(--amber); box-shadow: 0 0 0 3px #ffc23d44; }
+.veh-msg { color: var(--muted); text-align: center; padding: 18px 8px; font-size: 14.5px; }
+.veh-msg.warn { color: var(--amber); font-weight: 600; }
+.veh-card {
+  background: var(--surface); border: 1px solid var(--line-soft); border-radius: var(--r);
+  padding: var(--pad); display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.veh-plate {
+  background: #f7c500; color: #0b0b0b; border-radius: 6px; padding: 3px 14px;
+  font-weight: 800; font-size: 22px; letter-spacing: 2px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.veh-title { font-size: 26px; font-weight: 800; text-align: center; line-height: 1.15; }
+.veh-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.veh-chip {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line);
+  background: #0a121f; color: var(--text); font-size: 14px; font-weight: 600;
+}
+.veh-badges { display: flex; gap: 10px; width: 100%; margin-top: 2px; }
+.veh-badge {
+  flex: 1; text-align: center; padding: 10px 8px; border-radius: 12px;
+  font-size: 17px; font-weight: 800; letter-spacing: .5px;
+  background: #ffffff10; color: var(--muted);
+}
+.veh-badge small { display: block; font-size: 10.5px; letter-spacing: 2px; font-weight: 700; opacity: .7; margin-bottom: 3px; }
+.veh-badge.ok { background: #3ddc8420; color: var(--green); }
+.veh-badge.bad { background: #ff6b6b22; color: var(--red); }
+.veh-badge.na { background: #ffffff10; color: var(--muted); }
+.veh-notes { color: var(--muted-2); font-size: 12.5px; text-align: center; line-height: 1.45; }
+
 /* ---------- tabs ---------- */
 .tabs {
   display: flex; gap: 8px; padding: 8px 8px calc(env(safe-area-inset-bottom) + 8px);
@@ -218,9 +254,9 @@ select {
   border-top: 1px solid var(--line-soft);
 }
 .tab {
-  flex: 1; padding: 13px; background: transparent; border: none; border-radius: 12px;
-  color: var(--muted); font-size: 15px; font-weight: 700;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
+  flex: 1; padding: 12px 4px; background: transparent; border: none; border-radius: 12px;
+  color: var(--muted); font-size: 13px; font-weight: 700; white-space: nowrap;
+  display: flex; align-items: center; justify-content: center; gap: 5px;
 }
-.tab-ico { font-size: 16px; }
+.tab-ico { font-size: 15px; }
 .tab.active { color: var(--amber); background: #ffc23d12; }

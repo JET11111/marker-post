@@ -1,28 +1,21 @@
 # Vehicle lookup relay
 
-> **PARKED (July 2026):** DVLA closed new VES API registrations ("system
-> upgrades"), so this feature can't go fully live yet. The app UI has been
-> removed from production (see git history for `app.js`/`index.html` circa the
-> "Add Vehicle tab" commit) and this worker is kept for when registration
-> reopens — check https://register-for-ves.driver-vehicle-licensing.api.gov.uk/
-
 Powers the app's **Vehicle** tab: registration in → make, model, age, colour,
-fuel, plain-English class, tax and MOT status out. Merges two official APIs
-server-side so the keys never touch the browser:
+fuel, MOT status (and, when DVLA access exists, tax status and weight class).
+All keys stay server-side in this Cloudflare Worker.
 
-- **DVLA Vehicle Enquiry Service** — tax status, colour, fuel, year, class/weight
-- **DVSA MOT history** — model, MOT fallback
+- **DVSA MOT history** (required, registration open) — make, model, colour,
+  fuel, age, MOT validity. Covers cars, bikes, vans, and HGV/PSV annual tests.
+- **DVLA Vehicle Enquiry Service** (optional) — adds tax status and
+  weight/class. New-key registration is currently closed ("system upgrades");
+  the Worker runs happily without it and upgrades the moment a key is added.
 
 ## One-time setup
 
-### 1. Register for the two (free) APIs — only you can
+### 1. Register for the DVSA MOT history API (free, only you can)
 
-- **DVLA VES**: apply at
-  <https://register-for-ves.driver-vehicle-licensing.api.gov.uk/> → you get an
-  **API key** by email.
-- **DVSA MOT history**: register at
-  <https://documentation.history.mot.api.gov.uk/mot-history-api/register> → you
-  get a **client id**, **client secret**, **API key** and a **token URL**.
+<https://documentation.history.mot.api.gov.uk/mot-history-api/register> — you
+receive a **client id**, **client secret**, **API key** and a **token URL**.
 
 ### 2. Deploy — one command
 
@@ -32,32 +25,39 @@ From this directory:
 bash setup.sh
 ```
 
-It logs you in to Cloudflare if needed, prompts you to paste the five values
-(DVLA key; DVSA client id, client secret, API key, token URL — all stored
-encrypted by Cloudflare, never in git), deploys the worker, and runs a test
-lookup at the end.
+Logs you in to Cloudflare if needed, prompts for the four DVSA values (stored
+encrypted, never in git), offers an optional DVLA key prompt, deploys, and runs
+a test lookup.
 
-Manual equivalent: the five `npx wrangler secret put` commands listed in
-`wrangler.toml`, then `npx wrangler deploy`. Keep the worker name
-`vehicle-lookup` — the app expects
+Keep the worker name `vehicle-lookup` — the app expects
 `https://vehicle-lookup.<your-subdomain>.workers.dev/`.
 
-### 3. Test
+### 3. Later: add DVLA when registration reopens
+
+Watch <https://register-for-ves.driver-vehicle-licensing.api.gov.uk/> (or email
+DvlaAPIAccess@dvla.gov.uk asking to be notified). When you have a key:
+
+```bash
+npx wrangler secret put DVLA_KEY
+```
+
+Tax and weight class appear on the card immediately — no code changes.
+
+## Test
 
 ```bash
 curl "https://vehicle-lookup.<your-subdomain>.workers.dev/?reg=AB12CDE"
 ```
 
-- `500 Relay not configured` → a secret/var is missing (the message names it).
+- `500 Relay not configured` → a DVSA secret is missing (the message names it).
 - `MOT HTTP 401/403` in a note → DVSA credentials wrong.
-- `DVLA HTTP 403` → DVLA key wrong.
+- A card without tax → normal until DVLA_KEY is set.
 
 ## Behaviour notes
 
 - Results are edge-cached for 5 minutes per registration.
-- If one API is down you still get a partial card; the missing bits are named
-  in `notes`.
-- 404 is returned only when **both** APIs have no record.
+- If an upstream is down you still get a partial card; `notes` says what's
+  missing. 404 only when every configured source has no record.
 
 ## Terms
 

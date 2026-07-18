@@ -79,7 +79,9 @@ export default {
       });
 
     if (req.method !== "GET") return json({ error: "GET only" }, 405);
-    const missing = ["DVLA_KEY", "MOT_CLIENT_ID", "MOT_CLIENT_SECRET", "MOT_API_KEY", "MOT_TOKEN_URL"]
+    // DVSA is required; DVLA is optional (registration currently closed) —
+    // without it the card simply lacks tax status and weight class.
+    const missing = ["MOT_CLIENT_ID", "MOT_CLIENT_SECRET", "MOT_API_KEY", "MOT_TOKEN_URL"]
       .filter((k) => !env[k] || String(env[k]).includes("REPLACE"));
     if (missing.length) {
       return json({ error: `Relay not configured: missing ${missing.join(", ")}` }, 500);
@@ -97,13 +99,18 @@ export default {
       return res;
     }
 
-    const [dvla, dvsa] = await Promise.all([callDvla(env, reg), callMot(env, reg)]);
+    const [dvla, dvsa] = await Promise.all([
+      env.DVLA_KEY
+        ? callDvla(env, reg)
+        : Promise.resolve({ ok: false, status: -1, error: "DVLA key not configured" }),
+      callMot(env, reg),
+    ]);
     const payload = buildPayload(reg, dvla, dvsa);
 
     if (!payload.found) {
-      // Both records missing is a real "no such vehicle"; anything else is an
-      // upstream fault and must not be cached or mistaken for one.
-      const notFound = dvla.status === 404 && dvsa.status === 404;
+      // No record on any configured source is a real "no such vehicle";
+      // an upstream fault must not be cached or mistaken for one.
+      const notFound = dvsa.status === 404 && (dvla.status === 404 || dvla.status === -1);
       if (notFound) return json({ ...payload, error: "No record found" }, 404);
       return json(
         { ...payload, error: `Lookup failed (${dvla.error || "?"}; ${dvsa.error || "?"})` },

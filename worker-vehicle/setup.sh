@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # One-command setup for the vehicle lookup relay.
 # Run from this directory:  bash setup.sh
-# Have ready: DVLA API key; DVSA client id, client secret, API key, token URL.
+# Required: DVSA client id, client secret, API key, token URL.
+# Optional: DVLA API key (registration currently closed — skip until it reopens;
+#           re-run this script or `npx wrangler secret put DVLA_KEY` later).
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -14,16 +16,22 @@ fi
 echo
 echo "Paste each value when prompted (input is hidden by wrangler)."
 echo
-echo "1/5 DVLA API key (from your VES registration email)"
-npx wrangler secret put DVLA_KEY
-echo "2/5 DVSA client id"
+echo "1/4 DVSA client id"
 npx wrangler secret put MOT_CLIENT_ID
-echo "3/5 DVSA client secret"
+echo "2/4 DVSA client secret"
 npx wrangler secret put MOT_CLIENT_SECRET
-echo "4/5 DVSA API key"
+echo "3/4 DVSA API key"
 npx wrangler secret put MOT_API_KEY
-echo "5/5 DVSA token URL (looks like https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token)"
+echo "4/4 DVSA token URL (looks like https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token)"
 npx wrangler secret put MOT_TOKEN_URL
+
+echo
+read -r -p "Do you have a DVLA VES API key? (y/N) " HAS_DVLA
+if [[ "${HAS_DVLA,,}" == "y" ]]; then
+  npx wrangler secret put DVLA_KEY
+else
+  echo "Skipping DVLA — the card will show everything except tax & weight class."
+fi
 
 echo
 echo "Deploying…"
