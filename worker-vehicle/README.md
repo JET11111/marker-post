@@ -18,31 +18,25 @@ server-side so the keys never touch the browser:
   <https://documentation.history.mot.api.gov.uk/mot-history-api/register> → you
   get a **client id**, **client secret**, **API key** and a **token URL**.
 
-### 2. Configure
+### 2. Deploy — one command
 
-Edit `wrangler.toml`: replace the `MOT_TOKEN_URL` placeholder with the token
-URL from your DVSA email. Then, from this directory:
-
-```bash
-npx wrangler secret put DVLA_KEY
-npx wrangler secret put MOT_CLIENT_ID
-npx wrangler secret put MOT_CLIENT_SECRET
-npx wrangler secret put MOT_API_KEY
-```
-
-Each prompts you to paste the value — stored encrypted by Cloudflare, never in
-git.
-
-### 3. Deploy
+From this directory:
 
 ```bash
-npx wrangler deploy
+bash setup.sh
 ```
 
-Keep the worker name `vehicle-lookup` — the app expects
+It logs you in to Cloudflare if needed, prompts you to paste the five values
+(DVLA key; DVSA client id, client secret, API key, token URL — all stored
+encrypted by Cloudflare, never in git), deploys the worker, and runs a test
+lookup at the end.
+
+Manual equivalent: the five `npx wrangler secret put` commands listed in
+`wrangler.toml`, then `npx wrangler deploy`. Keep the worker name
+`vehicle-lookup` — the app expects
 `https://vehicle-lookup.<your-subdomain>.workers.dev/`.
 
-### 4. Test
+### 3. Test
 
 ```bash
 curl "https://vehicle-lookup.<your-subdomain>.workers.dev/?reg=AB12CDE"
