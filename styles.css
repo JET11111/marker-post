@@ -254,9 +254,9 @@ select {
   border-top: 1px solid var(--line-soft);
 }
 .tab {
-  flex: 1; padding: 12px 4px; background: transparent; border: none; border-radius: 12px;
-  color: var(--muted); font-size: 13px; font-weight: 700; white-space: nowrap;
-  display: flex; align-items: center; justify-content: center; gap: 5px;
+  flex: 1; padding: 13px; background: transparent; border: none; border-radius: 12px;
+  color: var(--muted); font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-.tab-ico { font-size: 15px; }
+.tab-ico { font-size: 16px; }
 .tab.active { color: var(--amber); background: #ffc23d12; }

@@ -139,11 +139,13 @@
     <button class="tab" data-view="signs">
       <span class="tab-ico" aria-hidden="true">▥</span> Signs
     </button>
-    <button class="tab" data-view="vehicle">
-      <span class="tab-ico" aria-hidden="true">▭</span> Vehicle
-    </button>
+    <!-- Vehicle tab hidden until the DVSA key arrives; the view stays wired
+         and reachable at #vehicle for testing. Restore the button to launch:
+         <button class="tab" data-view="vehicle">
+           <span class="tab-ico" aria-hidden="true">▭</span> Vehicle
+         </button>  (and shorten the label below back to "Go to") -->
     <button class="tab" data-view="goto">
-      <span class="tab-ico" aria-hidden="true">➔</span> Go to
+      <span class="tab-ico" aria-hidden="true">➔</span> Go to post
     </button>
   </nav>
 
