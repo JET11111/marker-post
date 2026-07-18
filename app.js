@@ -586,11 +586,73 @@ function signCard(s) {
   </div>`;
 }
 
+// ---------- vehicle lookup view ----------
+// Registration in -> make/model/age/colour/fuel/class + tax & MOT badges.
+// All API work happens in the vehicle-lookup Worker (worker-vehicle/), which
+// holds the DVLA/DVSA credentials and merges both records into one payload.
+const VEH_URL = "https://vehicle-lookup.got2005lhs.workers.dev/";
+let vehBusy = false;
+
+async function lookupVehicle() {
+  if (vehBusy) return;
+  const reg = el("v-reg").value.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const out = el("v-result");
+  if (!/^[A-Z0-9]{2,7}$/.test(reg)) {
+    out.innerHTML = `<div class="veh-msg warn">Enter a registration (2–7 letters/numbers).</div>`;
+    return;
+  }
+  vehBusy = true;
+  const btn = el("v-find");
+  btn.disabled = true;
+  btn.textContent = "Looking up…";
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 12000);
+    const res = await fetch(`${VEH_URL}?reg=${encodeURIComponent(reg)}`, { signal: ctl.signal });
+    clearTimeout(t);
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 404) {
+      out.innerHTML = `<div class="veh-msg warn">No record found for ${escapeHtml(reg)}.</div>`;
+    } else if (!res.ok) {
+      out.innerHTML = `<div class="veh-msg warn">Lookup failed: ${escapeHtml(data.error || `HTTP ${res.status}`)}</div>`;
+    } else {
+      out.innerHTML = vehicleCard(data);
+    }
+  } catch {
+    out.innerHTML = `<div class="veh-msg warn">Can't reach the lookup relay — check your connection.</div>`;
+  } finally {
+    vehBusy = false;
+    btn.disabled = false;
+    btn.textContent = "Look up";
+  }
+}
+
+function vehicleCard(v) {
+  const badge = (name, b) => {
+    const cls = b.ok === true ? "ok" : b.ok === false ? "bad" : "na";
+    return `<div class="veh-badge ${cls}"><small>${name}</small>${escapeHtml(b.status || "UNKNOWN")}</div>`;
+  };
+  const chips = [
+    v.colour, v.fuel,
+    v.vclass && (v.vclass.label + (v.vclass.detail ? ` · ${v.vclass.detail}` : "")),
+    v.year && `${v.year}${v.age != null ? ` · ${v.age} yr${v.age === 1 ? "" : "s"}` : ""}`,
+  ].filter(Boolean);
+  const title = [v.make, v.model].filter(Boolean).join(" ") || "Unknown vehicle";
+  return `
+  <div class="veh-card">
+    <div class="veh-plate">${escapeHtml(v.reg || "")}</div>
+    <div class="veh-title">${escapeHtml(title)}</div>
+    <div class="veh-chips">${chips.map((c) => `<span class="veh-chip">${escapeHtml(c)}</span>`).join("")}</div>
+    <div class="veh-badges">${badge("TAX", v.tax || {})}${badge("MOT", v.mot || {})}</div>
+    ${(v.notes || []).length ? `<div class="veh-notes">${v.notes.map(escapeHtml).join(" ")}</div>` : ""}
+  </div>`;
+}
+
 // ---------- tabs ----------
 function switchView(view) {
   for (const t of document.querySelectorAll(".tab"))
     t.classList.toggle("active", t.dataset.view === view);
-  for (const v of ["nearest", "signs", "goto"])
+  for (const v of ["nearest", "signs", "vehicle", "goto"])
     el(`view-${v}`).classList.toggle("hidden", v !== view);
   if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
   if (view === "signs") loadVms(); // refresh data + check age on every open
@@ -626,7 +688,17 @@ async function init() {
   el("g-quick").addEventListener("input", (e) => parseQuick(e.target.value));
   for (const t of document.querySelectorAll(".tab"))
     t.addEventListener("click", () => switchView(t.dataset.view));
-  if (["#goto", "#signs"].includes(location.hash)) switchView(location.hash.slice(1));
+  if (["#goto", "#signs", "#vehicle"].includes(location.hash)) switchView(location.hash.slice(1));
+
+  // Vehicle lookup: uppercase as you type; Enter or the button submits.
+  el("v-find").addEventListener("click", lookupVehicle);
+  el("v-reg").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); lookupVehicle(); }
+  });
+  el("v-reg").addEventListener("input", (e) => {
+    const c = e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, "");
+    if (c !== e.target.value) e.target.value = c;
+  });
 
   // VMS signs: initial load, manual refresh, and a ~30 s live re-poll while
   // the tab is open and on screen (the relay's edge cache absorbs the rest).

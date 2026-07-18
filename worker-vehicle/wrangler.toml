@@ -1,0 +1,19 @@
+# Cloudflare Worker config for the vehicle lookup relay.
+# Deploy:  npx wrangler deploy      (from this directory)
+# The name must stay "vehicle-lookup" — the app calls
+# https://vehicle-lookup.<your-subdomain>.workers.dev/
+name = "vehicle-lookup"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+
+[vars]
+# From your DVSA MOT history API registration email: the OAuth token URL,
+# which includes your tenant id. Replace before deploying.
+MOT_TOKEN_URL = "https://login.microsoftonline.com/REPLACE-TENANT-ID/oauth2/v2.0/token"
+MOT_SCOPE = "https://tapi.dvsa.gov.uk/.default"
+
+# Secrets (never in this file) — set each with `npx wrangler secret put <NAME>`:
+#   DVLA_KEY           DVLA Vehicle Enquiry Service API key
+#   MOT_CLIENT_ID      DVSA MOT history client id
+#   MOT_CLIENT_SECRET  DVSA MOT history client secret
+#   MOT_API_KEY        DVSA MOT history API key

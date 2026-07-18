@@ -1,0 +1,66 @@
+# Vehicle lookup relay
+
+Powers the app's **Vehicle** tab: registration in → make, model, age, colour,
+fuel, plain-English class, tax and MOT status out. Merges two official APIs
+server-side so the keys never touch the browser:
+
+- **DVLA Vehicle Enquiry Service** — tax status, colour, fuel, year, class/weight
+- **DVSA MOT history** — model, MOT fallback
+
+## One-time setup
+
+### 1. Register for the two (free) APIs — only you can
+
+- **DVLA VES**: apply at
+  <https://register-for-ves.driver-vehicle-licensing.api.gov.uk/> → you get an
+  **API key** by email.
+- **DVSA MOT history**: register at
+  <https://documentation.history.mot.api.gov.uk/mot-history-api/register> → you
+  get a **client id**, **client secret**, **API key** and a **token URL**.
+
+### 2. Configure
+
+Edit `wrangler.toml`: replace the `MOT_TOKEN_URL` placeholder with the token
+URL from your DVSA email. Then, from this directory:
+
+```bash
+npx wrangler secret put DVLA_KEY
+npx wrangler secret put MOT_CLIENT_ID
+npx wrangler secret put MOT_CLIENT_SECRET
+npx wrangler secret put MOT_API_KEY
+```
+
+Each prompts you to paste the value — stored encrypted by Cloudflare, never in
+git.
+
+### 3. Deploy
+
+```bash
+npx wrangler deploy
+```
+
+Keep the worker name `vehicle-lookup` — the app expects
+`https://vehicle-lookup.<your-subdomain>.workers.dev/`.
+
+### 4. Test
+
+```bash
+curl "https://vehicle-lookup.<your-subdomain>.workers.dev/?reg=AB12CDE"
+```
+
+- `500 Relay not configured` → a secret/var is missing (the message names it).
+- `MOT HTTP 401/403` in a note → DVSA credentials wrong.
+- `DVLA HTTP 403` → DVLA key wrong.
+
+## Behaviour notes
+
+- Results are edge-cached for 5 minutes per registration.
+- If one API is down you still get a partial card; the missing bits are named
+  in `notes`.
+- 404 is returned only when **both** APIs have no record.
+
+## Terms
+
+Both APIs have acceptable-use terms (DVLA's requires a legitimate interest in
+the vehicle you query). This relay is for your own use; keep the worker URL to
+yourself — it holds no secrets, but it spends your API quota.

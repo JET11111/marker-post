@@ -73,6 +73,20 @@
       <div id="s-list" class="signs-list"></div>
     </section>
 
+    <!-- VEHICLE LOOKUP VIEW -->
+    <section id="view-vehicle" class="view hidden">
+      <div class="card">
+        <label class="fld">
+          <span class="fld-lbl">Registration</span>
+          <input id="v-reg" class="plate-input" type="text" autocomplete="off"
+                 autocapitalize="characters" spellcheck="false" maxlength="9"
+                 placeholder="AB12 CDE" enterkeyhint="search" />
+        </label>
+        <button id="v-find" class="btn btn-primary">Look up</button>
+      </div>
+      <div id="v-result"></div>
+    </section>
+
     <!-- GO TO POST VIEW -->
     <section id="view-goto" class="view hidden">
       <div class="card">
@@ -125,8 +139,11 @@
     <button class="tab" data-view="signs">
       <span class="tab-ico" aria-hidden="true">▥</span> Signs
     </button>
+    <button class="tab" data-view="vehicle">
+      <span class="tab-ico" aria-hidden="true">▭</span> Vehicle
+    </button>
     <button class="tab" data-view="goto">
-      <span class="tab-ico" aria-hidden="true">➔</span> Go to post
+      <span class="tab-ico" aria-hidden="true">➔</span> Go to
     </button>
   </nav>
 
