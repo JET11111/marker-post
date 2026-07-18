@@ -176,8 +176,12 @@ const roadLabel = (road) => (road === "A3M" ? "A3(M)" : road);
 // The element is centred in a flex column so it's only as wide as its text and
 // overflows the parent — hence we measure against the parent, not the element.
 function fitText(elem, maxPx) {
-  elem.style.fontSize = maxPx + "px";
   const parent = elem.parentElement;
+  // Unmeasurable (view hidden, or squashed by the keyboard): sizing now would
+  // blow the text up to maxPx with no way to shrink it. Leave it alone —
+  // switchView refits the moment the view is shown again.
+  if (!parent || parent.clientWidth === 0) return;
+  elem.style.fontSize = maxPx + "px";
   const cs = getComputedStyle(parent);
   const avail = parent.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
   const natural = elem.getBoundingClientRect().width;
@@ -657,6 +661,12 @@ function switchView(view) {
     el(`view-${v}`).classList.toggle("hidden", v !== view);
   if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
   if (view === "signs") loadVms(); // refresh data + check age on every open
+  if (view === "nearest") {
+    // GPS updates that arrived while this view was hidden couldn't size the
+    // ref text (width read 0) — refit now that it's measurable.
+    const e = el("np-ref");
+    if (e.textContent !== "—") fitText(e, 158);
+  }
 }
 
 // ---------- keep screen awake ----------
