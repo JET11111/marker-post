@@ -13,7 +13,21 @@ if (!KEY) {
   process.exit(1);
 }
 
-const out = await fetchSigns(KEY);
+// The NH gateway throws the odd transient 403/5xx; retry before failing the
+// run so a single blip doesn't produce a red workflow email. Persistent
+// failures (e.g. a dead key) still fail after the last attempt.
+const delay = (s) => new Promise((r) => setTimeout(r, s * 1000));
+let out;
+for (let attempt = 1; ; attempt++) {
+  try {
+    out = await fetchSigns(KEY);
+    break;
+  } catch (e) {
+    if (attempt >= 3) throw e;
+    console.log(`Attempt ${attempt} failed (${e.message.slice(0, 120)}); retrying in 30 s`);
+    await delay(30);
+  }
+}
 
 // Skip the write (=> no commit, no Pages rebuild) when only timestamps moved.
 let prev = null;
