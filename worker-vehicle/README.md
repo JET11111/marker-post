@@ -1,5 +1,11 @@
 # Vehicle lookup relay
 
+> **PARKED (July 2026):** DVLA closed new VES API registrations ("system
+> upgrades"), so this feature can't go fully live yet. The app UI has been
+> removed from production (see git history for `app.js`/`index.html` circa the
+> "Add Vehicle tab" commit) and this worker is kept for when registration
+> reopens — check https://register-for-ves.driver-vehicle-licensing.api.gov.uk/
+
 Powers the app's **Vehicle** tab: registration in → make, model, age, colour,
 fuel, plain-English class, tax and MOT status out. Merges two official APIs
 server-side so the keys never touch the browser:
