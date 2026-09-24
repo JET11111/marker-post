@@ -1,0 +1,35 @@
+name: network-data
+on:
+  schedule:
+    - cron: "41 5 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: network-data
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Download complete official NH snapshot
+        run: node scripts/fetch-network.mjs
+      - name: Validate snapshot and downloader
+        run: |
+          node --check scripts/fetch-network.mjs
+          node scripts/fetch-network.mjs --validate
+      - name: Commit refreshed source data
+        run: |
+          if ! git diff --quiet -- data/network.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/network.json
+            git commit -m "map: refresh official NH network data"
+            git pull --rebase
+            git push
+          fi
