@@ -270,12 +270,14 @@ class HampshireMap {
     const detail = getLocationDetails({ selection:f, links:this.network?.links, postFeatures:this.postFeatures, areas:this.features, sources:this.network?.sources });
     const link = detail.section?.link, layout = detail.layout;
     const post = f.kind === 'post' ? { feature:f, distanceM:0 } : detail.nearestPost;
-    const road = f.road || link?.road, carriageway = f.carriageway || link?.carriageway;
+    const isBay = ['layby','era'].includes(f.kind);
+    const road = f.road || link?.road, carriageway = isBay ? link?.carriageway : f.carriageway || link?.carriageway;
     const nearby = [detail.nearestEra, detail.nearestLayby];
     const association = (item) => item?.association === 'same-carriageway' ? `Carriageway ${esc(item.matchedCarriageway || carriageway || '')}` : item?.association === 'selected-record' ? 'Selected record' : 'Carriageway unverified';
     const row = (item, label, index) => item ? `<button class="map-nearby" type="button" data-nearby="${index}"><span><strong>${label}</strong><small>${association(item)}${item.sourceKey === 'emergencyAreas' ? ' · older record' : ''}</small></span><b>${metres(item.distanceM)}<span aria-hidden="true"> ›</span></b></button>` : `<div class="map-nearby"><span><strong>${label}</strong><small>No matching record within 30 km</small></span><b>Unknown</b></div>`;
     $('map-panel').innerHTML = `<div class="map-sheet-heading"><div><div class="map-detail-type">${esc(road ? roadName(road) : 'Map point')}${carriageway ? ` · ${esc(carriageway)}` : ''}</div><h2 class="map-reference">${esc(f.kind === 'post' ? f.title : f.kind === 'era' ? 'Emergency area' : f.kind === 'layby' ? 'Lay-by' : f.kind === 'junction' ? f.title : 'Road details')}</h2></div><button class="map-close" id="map-detail-close" type="button" aria-label="Close details">×</button></div>
       <div class="map-sheet-body">
+        ${isBay ? '<p class="map-subtext">Adjoining road layout</p>' : ''}
         <div class="map-detail-grid"><div><span>Running lanes</span><strong>${esc(layout.running)}</strong></div><div><span>Hard shoulder</span><strong>${esc(layout.shoulder)}</strong></div></div>
         ${f.kind !== 'post' ? (post ? `<button class="map-post-row" id="map-nearest-post" type="button"><span>Nearest marker <small>${metres(post.distanceM)} · straight-line</small></span><strong>${esc(post.feature.title)} ›</strong></button>` : '<div class="map-subtext">Nearest marker: no matching record.</div>') : ''}
         <div class="map-distance-label">Nearest bay records <span>straight-line</span></div>
