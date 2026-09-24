@@ -1,12 +1,12 @@
 // Service worker: precache app shell + dataset for full offline use.
-const CACHE = "markerpost-v25-map";
+const CACHE = "markerpost-v26-mobile-map";
 const ASSETS = [
   ".",
   "index.html",
   "styles.css",
   "app.js",
   "map.mjs",
-  "map-routing.mjs",
+  "map-details.mjs",
   "map.css",
   "vendor/leaflet/leaflet.js",
   "vendor/leaflet/leaflet.css",
