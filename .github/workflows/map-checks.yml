@@ -1,0 +1,19 @@
+name: map-checks
+on:
+  pull_request:
+    paths: ['map*', 'app.js', 'index.html', 'sw.js', 'data/network.json', 'data/posts-supplemental.json', 'scripts/fetch-network.mjs', 'scripts/fetch-supplemental-posts.py', 'tests/**', '.github/workflows/map-checks.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/*.test.mjs
+      - run: node scripts/fetch-network.mjs --validate
+      - run: node --check map.mjs && node --check app.js && node --check sw.js
+      - run: python3 -m py_compile scripts/fetch-supplemental-posts.py
