@@ -1,5 +1,5 @@
 // Service worker: precache app shell + dataset for full offline use.
-const CACHE = "markerpost-v26-mobile-map";
+const CACHE = "markerpost-v27-mobile-map";
 const ASSETS = [
   ".",
   "index.html",
@@ -23,7 +23,7 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((url) => new Request(url, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
@@ -34,7 +34,8 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Network-first for same-origin: always fresh when online, cache as offline
+// Revalidate same-origin HTTP assets: a network-first fetch must not reuse
+// a still-fresh browser HTTP cache entry after deployment. Keep cache as offline
 // fallback. Keeps full offline use without ever serving a stale app shell.
 async function cacheFallback(request) {
   const hit = await caches.match(request);
@@ -47,7 +48,7 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((res) => {
         // An HTTP error must not overwrite the last usable offline snapshot.
         if (!res.ok) return cacheFallback(e.request).then((hit) => hit || res);
