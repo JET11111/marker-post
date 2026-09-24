@@ -1,3 +1,17 @@
+# Mobile map update — 24 September 2026
+
+The Map tab now opens to an edge-to-edge map with a floating search field. The routing planner, route endpoints, saved-place dashboard, permanent marker labels and duplicate header are removed from the map. The route engine is no longer imported or precached; its earlier implementation remains in git for reference.
+
+Tap a small gold marker dot to open its reference, or tap a highlighted road to inspect it. The dismissible bottom card shows recorded running lanes, hard shoulder status, nearest matching marker and the nearest ERA/lay-by records. Bay distances are straight-line distances to recorded points: they do not indicate driving distance, a bay ahead, access or availability. Unknown records stay unknown. Older ERA records and uncertain carriageway associations stay labelled.
+
+Road inspection no longer depends on route eligibility. Lane data is evaluated at the selected position; shoulder lane codes are excluded from running-lane counts. Mainline marker associations match the recorded road and carriageway. Ambiguous and provisional interchange associations do not supply definitive layout values. Lay-bys can associate with their parent carriageway through real endpoint nodes; no route is calculated.
+
+Map options contain layer switches, full-patch view and light background. Source dates and refresh remain behind the compact data button. Marker and bay layers appear from zoom 12; marker labels never appear automatically. The service worker caches the new inspection module for offline use.
+
+`docs/mobile-preview.html` loads the real app in selectable 375/390/430-pixel phone viewports and landscape for visual review.
+
+## Earlier implementation record
+
 # Hampshire network map
 
 Open the new **Map** tab (or `/#map`). The existing nearest-post, VMS, vehicle and Go to tools remain available.
