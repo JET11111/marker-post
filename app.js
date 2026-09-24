@@ -4,6 +4,7 @@
 let POSTS = [];
 let JUNCTIONS = [];
 let ERAS = []; // Emergency Refuge Areas — only present on smart-motorway roads.
+let lastFoundPost = null;
 let VMS = null; // Live VMS sign statuses (data/vms.json, refreshed by CI).
 let lastPos = null; // Latest GPS fix, for distance-to-sign sorting.
 const byRoad = new Map();
@@ -15,6 +16,17 @@ async function loadData() {
     fetch("data/eras.json", { cache: "force-cache" }),
   ]);
   POSTS = await pRes.json();
+  // Retain unusual interchange road names and original link labels. They are
+  // real source records, but their survey date / physical presence is unknown.
+  try {
+    const response = await fetch("data/posts-supplemental.json", { cache: "no-cache" });
+    if (response.ok) {
+      const supplemental = await response.json();
+      if (Array.isArray(supplemental.posts)) {
+        POSTS.push(...supplemental.posts);
+      }
+    }
+  } catch { /* The core post tools still work if the optional supplement fails. */ }
   JUNCTIONS = await jRes.json();
   ERAS = await eRes.json();
   for (const p of POSTS) {
@@ -63,6 +75,9 @@ function computeTravelBearings() {
     groups.get(k).push(p);
   }
   for (const [k, list] of groups) {
+    // Interchange links share source road names but are not one continuous
+    // carriageway. Do not infer travel bearings by sorting their chainages.
+    if (list.some((p) => p.link)) continue;
     if (list.length < 2) continue;
     list.sort((a, b) => a.distance - b.distance);
     const [road, dir] = k.split("|");
@@ -170,7 +185,7 @@ function nearestERA(lat, lng, road, dir, heading, speed, useHeading) {
 }
 
 // Display label (A3M is the A3(M) motorway).
-const roadLabel = (road) => (road === "A3M" ? "A3(M)" : road);
+const roadLabel = (road) => ({ A3M: "A3(M)", CHILWORTH: "Chilworth · M3 / M27", PITSEA: "M27 / M275 interchange" }[road] || road);
 
 // Shrink text to fit the parent's content width (keeps it as large as possible).
 // The element is centred in a flex column so it's only as wide as its text and
@@ -226,7 +241,9 @@ function renderNearest(lat, lng, heading, speed, accuracy) {
   } else {
     eraRow.classList.add("hidden");
   }
-  el("np-meta").textContent = `updated ${new Date().toLocaleTimeString("en-GB")}`;
+  el("np-meta").textContent = post.link
+    ? `${post.link} · source survey date unknown`
+    : `updated ${new Date().toLocaleTimeString("en-GB")}`;
 }
 
 // GPS quality dot: green = trust it, amber = marginal, red = poor/unknown.
@@ -250,7 +267,9 @@ function startGeo() {
       const c = pos.coords;
       el("status").textContent = "Live";
       setGpsQuality(c.accuracy);
-      lastPos = { lat: c.latitude, lng: c.longitude };
+      lastPos = { lat: c.latitude, lng: c.longitude, accuracy: c.accuracy,
+        heading: c.heading, speed: c.speed, timestamp: pos.timestamp };
+      window.dispatchEvent(new CustomEvent("markerpost:position", { detail: lastPos }));
       renderNearest(c.latitude, c.longitude, c.heading, c.speed, c.accuracy);
     },
     (err) => {
@@ -323,10 +342,14 @@ function findPost() {
   const onDir = posts.filter((p) => p.direction === dir);
   const ref = buildRef(dist, dir);
   let match = onDir.find((p) => p.ref === ref) || null;
+  if (!match) {
+    const interchangeMatches = POSTS.filter((p) => p.ref === ref && p.roadAliases?.includes(road.replace('A3M', 'A3(M)')));
+    if (interchangeMatches.length === 1) match = interchangeMatches[0];
+  }
   let mode = match ? "exact" : "";
   if (!match && onDir.length) {
     match = nearestBy(onDir, dist);
-    mode = Math.abs(match.distance - dist) <= 0.15 ? "exact" : "offdist";
+    mode = Math.abs(match.distance - dist) < 0.001 ? "exact" : "offdist";
   }
   if (!match) {
     // Carriageway has no posts (e.g. a slip we lack data for): fall back to the
@@ -336,6 +359,7 @@ function findPost() {
   }
 
   const hero = el("r-hero");
+  lastFoundPost = match;
   result.classList.remove("hidden"); // reveal first so fitText can measure width
   if (!match) {
     hero.classList.add("hidden");
@@ -349,13 +373,13 @@ function findPost() {
   const detail = el("r-detail");
   detail.classList.toggle("warn", mode !== "exact");
   if (mode === "exact") {
-    detail.textContent = `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km`;
+    detail.textContent = `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km${match.link ? ` · ${match.link} · source survey date unknown` : ''}`;
   } else if (mode === "offdist") {
     detail.textContent =
       `⚠ No ${roadLabel(road)}/${dir} post at ${dist} km — nearest is ${match.ref} (${match.distance} km, ${off.toFixed(1)} km away). Check the carriageway and distance.`;
   } else {
     detail.textContent =
-      `⚠ No marker-post data for ${roadLabel(road)} carriageway ${dir} (slip road). Routing to the nearest mainline post, ${match.ref} at ${match.distance} km — the slip branches off here.`;
+      `⚠ No recorded post for ${roadLabel(road)} carriageway ${dir}. Showing ${match.ref} on carriageway ${match.direction} as a nearby reference only. This does not locate the requested slip road.`;
   }
   const waze = el("r-waze");
   waze.href = `https://waze.com/ul?ll=${match.lat},${match.lng}&navigate=yes`;
@@ -654,13 +678,32 @@ function vehicleCard(v) {
 }
 
 // ---------- tabs ----------
+let networkMapPromise;
+function openNetworkMap(post) {
+  if (!networkMapPromise) {
+    networkMapPromise = import("./map.mjs").then((m) => m.initMap({
+      posts: POSTS, junctions: JUNCTIONS, position: lastPos,
+    })).catch((err) => {
+      networkMapPromise = null;
+      const host = el("map-app");
+      host.textContent = "The map could not load. Check your connection and reopen the Map tab.";
+      throw err;
+    });
+  }
+  networkMapPromise.then((map) => {
+    map.show();
+    if (post) map.selectPost(post);
+  }).catch(() => {});
+}
 function switchView(view) {
   for (const t of document.querySelectorAll(".tab"))
     t.classList.toggle("active", t.dataset.view === view);
-  for (const v of ["nearest", "signs", "vehicle", "goto"])
+  for (const v of ["nearest", "signs", "vehicle", "goto", "map"])
     el(`view-${v}`).classList.toggle("hidden", v !== view);
+  document.body.classList.toggle("map-active", view === "map");
   if (location.hash.slice(1) !== view) history.replaceState(null, "", `#${view}`);
   if (view === "signs") loadVms(); // refresh data + check age on every open
+  if (view === "map") openNetworkMap();
   if (view === "nearest") {
     // GPS updates that arrived while this view was hidden couldn't size the
     // ref text (width read 0) — refit now that it's measurable.
@@ -699,7 +742,17 @@ async function init() {
   el("g-quick").addEventListener("input", (e) => parseQuick(e.target.value));
   for (const t of document.querySelectorAll(".tab"))
     t.addEventListener("click", () => switchView(t.dataset.view));
-  if (["#goto", "#signs", "#vehicle"].includes(location.hash)) switchView(location.hash.slice(1));
+  if (["#goto", "#signs", "#vehicle", "#map"].includes(location.hash)) switchView(location.hash.slice(1));
+  el("np-map").addEventListener("click", () => {
+    switchView("map");
+    if (lastPos) openNetworkMap(findNearest(lastPos.lat, lastPos.lng,
+      lastPos.heading, lastPos.speed, el("heading-toggle").checked).post);
+  });
+  el("r-map").addEventListener("click", () => {
+    const post = lastFoundPost;
+    switchView("map");
+    if (post) openNetworkMap(post);
+  });
 
   // Vehicle lookup: uppercase as you type; Enter or the button submits.
   el("v-find").addEventListener("click", lookupVehicle);

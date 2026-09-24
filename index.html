@@ -9,6 +9,8 @@
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="map.css" />
 </head>
 <body>
   <header class="topbar">
@@ -45,12 +47,13 @@
           <span class="info-val"><span id="np-jct">—</span> <span class="info-sub" id="np-jct-dist"></span></span>
         </div>
         <div id="np-era-row" class="info-row hidden">
-          <span class="info-lbl">Nearest ERA</span>
+          <span class="info-lbl">ERA reference · unverified</span>
           <span class="info-val"><span id="np-era">—</span> <span class="info-sub" id="np-era-dist"></span></span>
         </div>
       </div>
 
       <div id="np-meta" class="meta">Waiting for GPS…</div>
+      <button id="np-map" class="btn-mini" type="button">Explore on the network map ↗</button>
 
       <label class="switch">
         <span>Prefer my direction of travel</span>
@@ -125,16 +128,25 @@
           </div>
         </div>
         <div id="r-detail" class="result-detail"></div>
+        <button id="r-map" class="btn-mini" type="button">Show this post on the map ↗</button>
         <a id="r-waze" class="btn btn-waze" target="_blank" rel="noopener">
           <span class="waze-mark"></span> Open in Waze
         </a>
       </div>
+    </section>
+
+    <!-- HAMPSHIRE NETWORK MAP: loaded on demand. -->
+    <section id="view-map" class="view hidden" aria-label="Hampshire network map">
+      <div id="map-app" class="map-app"><div class="map-loading" role="status">Opening your patch…</div></div>
     </section>
   </main>
 
   <nav class="tabs">
     <button class="tab active" data-view="nearest">
       <span class="tab-ico" aria-hidden="true">◎</span> Nearest
+    </button>
+    <button class="tab" data-view="map">
+      <span class="tab-ico" aria-hidden="true">▧</span> Map
     </button>
     <button class="tab" data-view="signs">
       <span class="tab-ico" aria-hidden="true">▥</span> Signs
