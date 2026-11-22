@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Road badge, motorway: sign blue. The road name on it is white. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/markerpost_motorway" />
+    <corners android:radius="6dp" />
+</shape>

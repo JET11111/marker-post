@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Merged into the app's manifest at build time. The app itself declares only
+  INTERNET, so everything live tracking needs is declared here, in one place.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Location while the app is in use. Precise is needed: an approximate
+         position (about 3 square km) cannot pick a marker post. Coarse must be
+         requested alongside it. Background location ("Allow all the time") is
+         deliberately not requested: tracking only ever starts from the open app
+         and runs as a foreground service with a notification. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- The foreground service that keeps the position coming with the screen off. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Its notification (asked for at run time on Android 13 and later), and
+         on Android 16 and later the request to show it as a Live Update. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+
+    <!-- Tablets with no GPS receiver can still install the app. -->
+    <uses-feature
+        android:name="android.hardware.location.gps"
+        android:required="false" />
+
+    <application>
+
+        <!-- Live tracking. Not exported: only this app can start or stop it. -->
+        <service
+            android:name="io.github.jet11111.markerpost.nativecore.TrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- The home screen widget. Not exported: the system can still deliver
+             widget updates to it, other apps cannot send it anything. -->
+        <receiver
+            android:name="io.github.jet11111.markerpost.nativecore.MarkerPostWidgetProvider"
+            android:exported="false"
+            android:label="@string/markerpost_widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/markerpost_widget_info" />
+        </receiver>
+
+    </application>
+
+</manifest>

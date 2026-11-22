@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The fixed words around a post on the notification and the widget.
+  The post itself (road, chainage, letter, reference, junction line) is never
+  worded here: it is copied from the snapshot, which the app's own JavaScript
+  prepared. The carriageway is always its letter, never a compass direction.
+-->
+<resources>
+
+    <!-- The notification channel, as listed in the phone's notification settings. -->
+    <string name="markerpost_channel_name">Live tracking</string>
+    <string name="markerpost_channel_description">The nearest marker post while live tracking is on.</string>
+
+    <!-- The ongoing notification. The title is the post on one line ("M27 17.4 A"). -->
+    <string name="markerpost_waiting_for_gps">Waiting for GPS…</string>
+    <!-- 1: the junction line of the post ("J4 – J5"). 2: a time ("14:32"). -->
+    <string name="markerpost_notification_context_updated">%1$s · updated %2$s</string>
+    <!-- Used when the post has no junction line. 1: a time. -->
+    <string name="markerpost_notification_updated">Updated %1$s</string>
+    <!-- No recent position. 1: the time of the last one. -->
+    <string name="markerpost_notification_stale">No GPS since %1$s · last known post</string>
+    <string name="markerpost_action_stop">Stop</string>
+
+    <!-- The home screen widget. -->
+    <string name="markerpost_widget_label">Nearest marker post</string>
+    <string name="markerpost_widget_description">The last known marker post, and when it was updated.</string>
+    <string name="markerpost_widget_empty_title">No post yet</string>
+    <string name="markerpost_widget_empty_action">Open Marker Post</string>
+    <!-- The time line. 1: a time ("14:32", or "14:32, 21 Nov" when that was not today). -->
+    <string name="markerpost_widget_live">Live · %1$s</string>
+    <string name="markerpost_widget_no_gps_since">No GPS since %1$s</string>
+    <string name="markerpost_widget_last_updated">Last updated %1$s</string>
+
+    <!-- A time that was not today. 1: the time ("14:32"). 2: the day ("21 Nov"). -->
+    <string name="markerpost_time_on_another_day">%1$s, %2$s</string>
+
+    <!-- Sample content for the widget picker only (the same sample post the iPhone widget gallery shows). -->
+    <string name="markerpost_preview_road" translatable="false">M27</string>
+    <string name="markerpost_preview_km" translatable="false">17.4</string>
+    <string name="markerpost_preview_letter" translatable="false">A</string>
+    <string name="markerpost_preview_context" translatable="false">J4 – J5</string>
+    <string name="markerpost_preview_time" translatable="false">Last updated 14:32</string>
+
+</resources>

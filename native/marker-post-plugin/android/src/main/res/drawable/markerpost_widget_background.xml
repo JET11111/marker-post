@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The widget's surface: white by day, near-black at night, with rounded corners. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/markerpost_surface" />
+    <corners android:radius="@dimen/markerpost_widget_radius" />
+</shape>

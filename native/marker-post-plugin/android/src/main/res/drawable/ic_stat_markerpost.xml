@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Status bar icon for the live tracking notification: a marker post with its
+  number plate. One colour, white: Android draws status icons from the shape
+  alone and tints them itself. The plate is a hole in the post (even-odd fill).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M9,2h6a1,1 0,0 1,1 1v19h-8V3a1,1 0,0 1,1 -1z M10,5v6h4V5z" />
+</vector>

@@ -1,0 +1,92 @@
+// The Android half of the local Capacitor plugin "marker-post-native":
+// the plugin class, the live-tracking foreground service and its notification,
+// the home screen widget, and the nearest-post lookup with its tests.
+//
+// Capacitor includes this folder as the Gradle project ':marker-post-native'
+// ("npx cap sync" writes android/capacitor.settings.gradle). The file follows
+// the official Kotlin plugins (@capacitor/geolocation), so the Kotlin, Java and
+// SDK versions always match the rest of the app. Versions come from
+// android/variables.gradle when it names them; the values here are fallbacks.
+//
+// Deliberately absent: Compose, Glance and WorkManager. The widget is a plain
+// RemoteViews widget drawn straight from the tracking service, so none of
+// them is needed, and the current Compose and Glance releases want compileSdk
+// 37 and Android Gradle Plugin 9, while Capacitor 8 builds with compileSdk 36
+// and plugin 8.13. For the same reason androidx.core must stay at 1.17.0 (the
+// version Capacitor 8 pins): 1.19 and later refuse to build here.
+
+ext {
+    junitVersion = project.hasProperty('junitVersion') ? rootProject.ext.junitVersion : '4.13.2'
+    androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.7.1'
+    androidxCoreVersion = project.hasProperty('androidxCoreVersion') ? rootProject.ext.androidxCoreVersion : '1.17.0'
+    playServicesLocationVersion = project.hasProperty('playServicesLocationVersion') ? rootProject.ext.playServicesLocationVersion : '21.3.0'
+}
+
+buildscript {
+    ext.kotlin_version = project.hasProperty("kotlin_version") ? rootProject.ext.kotlin_version : '2.2.20'
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+apply plugin: 'com.android.library'
+if (project.extensions.findByName('kotlin') == null) {
+    apply plugin: 'kotlin-android'
+}
+
+android {
+    namespace = "io.github.jet11111.markerpost.nativecore"
+    compileSdk = project.hasProperty('compileSdkVersion') ? rootProject.ext.compileSdkVersion : 36
+    defaultConfig {
+        minSdkVersion project.hasProperty('minSdkVersion') ? rootProject.ext.minSdkVersion : 24
+        targetSdkVersion project.hasProperty('targetSdkVersion') ? rootProject.ext.targetSdkVersion : 36
+        versionCode 1
+        versionName "1.0"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    lintOptions {
+        abortOnError = false
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.core:core:$androidxCoreVersion"
+    implementation "com.google.android.gms:play-services-location:$playServicesLocationVersion"
+
+    testImplementation "junit:junit:$junitVersion"
+}
+
+// The unit tests run on the build machine's own Java, with no phone or
+// emulator. They read posts.tsv and nearest-fixtures.tsv from
+// src/test/resources (written by "npm run build:native"). When one fails, say
+// which answer was wrong in the build log itself, not only in the HTML report.
+tasks.withType(Test).configureEach {
+    testLogging {
+        events "passed", "skipped", "failed"
+        exceptionFormat "full"
+    }
+}

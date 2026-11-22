@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import MarkerPostNative
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -8,6 +9,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+
+        // If iOS closed the app during live tracking and has started it again
+        // (possibly in the background), carry on at once: the background
+        // location session can only be rejoined at launch.
+        MarkerTracker.shared.resumeAfterLaunch()
         return true
     }
 

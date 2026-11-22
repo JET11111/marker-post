@@ -13,3 +13,6 @@ project(':capacitor-haptics').projectDir = new File('../node_modules/@capacitor/
 
 include ':capacitor-splash-screen'
 project(':capacitor-splash-screen').projectDir = new File('../node_modules/@capacitor/splash-screen/android')
+
+include ':marker-post-native'
+project(':marker-post-native').projectDir = new File('../native/marker-post-plugin/android')

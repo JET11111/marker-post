@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Night colours: the same values as the page (styles.css, dark theme).
+  Only the colours that change at night are listed; the rest come from
+  values/colors.xml.
+-->
+<resources>
+
+    <color name="markerpost_webview_background">#000000</color>
+
+    <color name="markerpost_surface">#1C1C1E</color>
+    <color name="markerpost_text">#EBEBF0</color>
+    <color name="markerpost_text_secondary">#A1A1AA</color>
+
+    <color name="markerpost_neutral">#2C2C2E</color>
+    <color name="markerpost_on_neutral">#EBEBF0</color>
+
+    <!-- A slightly lighter amber on dark surfaces; the outlined chip's letter can use it as it is. -->
+    <color name="markerpost_amber">#FFC23D</color>
+    <color name="markerpost_amber_letter">#FFC23D</color>
+
+    <color name="markerpost_neutral_dim">#8C2C2C2E</color>
+    <color name="markerpost_on_neutral_dim">#8CEBEBF0</color>
+    <color name="markerpost_amber_dim">#8CFFC23D</color>
+    <color name="markerpost_amber_letter_dim">#8CFFC23D</color>
+
+</resources>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  How the launcher should treat the widget: about two cells by two, resizable
+  both ways, home screen only.
+
+  updatePeriodMillis is 0: the widget is never refreshed on a timer. It is
+  redrawn by the tracking service on every visible change and by the app
+  whenever it hands over the post on screen, and it always states the time of
+  its position.
+
+  description, previewLayout, targetCellWidth and targetCellHeight are read
+  from Android 12; older versions ignore them and use minWidth and minHeight.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/markerpost_widget_description"
+    android:initialLayout="@layout/markerpost_widget_empty"
+    android:minWidth="110dp"
+    android:minHeight="110dp"
+    android:previewLayout="@layout/markerpost_widget_preview"
+    android:resizeMode="horizontal|vertical"
+    android:targetCellWidth="2"
+    android:targetCellHeight="2"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen" />

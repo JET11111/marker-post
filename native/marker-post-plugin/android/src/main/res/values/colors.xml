@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Day colours: the same values as the page (styles.css, light theme).
+  Night versions of the ones that change are in values-night/colors.xml.
+  Every name starts with markerpost_ so it cannot collide with the app's own.
+-->
+<resources>
+
+    <!-- Behind the web view while the page loads (the page's "bg"), so nothing flashes white at night. -->
+    <color name="markerpost_webview_background">#F2F2F7</color>
+
+    <!-- The widget: its surface and its two text colours ("surface", "text", "text-2"). -->
+    <color name="markerpost_surface">#FFFFFF</color>
+    <color name="markerpost_text">#0A0A0C</color>
+    <color name="markerpost_text_secondary">#5A5A62</color>
+
+    <!-- Road badges. Motorway and A-road are the colours of the road signs, the same day and night. -->
+    <color name="markerpost_motorway">#0B62B8</color>
+    <color name="markerpost_on_motorway">#FFFFFF</color>
+    <color name="markerpost_a_road">#00693A</color>
+    <color name="markerpost_on_a_road">#FFD100</color>
+    <!-- Any other road: a neutral fill ("fill") with the ordinary text colour. -->
+    <color name="markerpost_neutral">#E9E9EE</color>
+    <color name="markerpost_on_neutral">#0A0A0C</color>
+
+    <!-- Carriageway chip: amber with dark text when the direction of travel chose
+         the letter; an amber outline with an amber letter when it is by position only.
+         On a light surface the letter uses the darker amber ("accent-text") so it can be read. -->
+    <color name="markerpost_amber">#FFB81C</color>
+    <color name="markerpost_on_amber">#1A1200</color>
+    <color name="markerpost_amber_letter">#8F5600</color>
+
+    <!-- The same colours at 55% opacity (the leading 8C), for a stale post:
+         the badge and the chip fade so the post cannot be read as current. -->
+    <color name="markerpost_motorway_dim">#8C0B62B8</color>
+    <color name="markerpost_on_motorway_dim">#8CFFFFFF</color>
+    <color name="markerpost_a_road_dim">#8C00693A</color>
+    <color name="markerpost_on_a_road_dim">#8CFFD100</color>
+    <color name="markerpost_neutral_dim">#8CE9E9EE</color>
+    <color name="markerpost_on_neutral_dim">#8C0A0A0C</color>
+    <color name="markerpost_amber_dim">#8CFFB81C</color>
+    <color name="markerpost_on_amber_dim">#8C1A1200</color>
+    <color name="markerpost_amber_letter_dim">#8C8F5600</color>
+
+</resources>
