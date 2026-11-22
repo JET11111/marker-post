@@ -219,6 +219,22 @@ export function junctionSection(post, sections) {
 }
 
 /**
+ * The line the phone's widgets, notification and Live Activity show under a
+ * post. It describes the POST, never the vehicle, because the phone trackers
+ * work it out in advance for every post: the junction section from the
+ * records, else the nearest junction and how far it is from the post, else
+ * nothing. Interchange link posts keep their caveat.
+ */
+export function postContext(post, sections, junctions) {
+  if (!post) return '';
+  if (post.link) return `Link ${post.link} · survey date unknown`;
+  const section = junctionSection(post, sections);
+  if (section) return section.label;
+  const nj = nearestJunction(junctions || [], post.lat, post.lng, post.road);
+  return nj ? `${junctionLabel(post.road, nj.jct.jct)} · ${fmtDist(nj.dist)} from post` : '';
+}
+
+/**
  * How long (ms) a position stays current without a new fix. After this it is
  * the "last known" position and every screen must say so: 15 s when moving,
  * 30 s when the speed is not known, 2 minutes when standing still.

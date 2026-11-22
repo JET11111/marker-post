@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { haversine, bearing, angleDiff } from '../core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, nearestERA,
-  buildRef, parseRef, roadLabel, roadClass, junctionSection, junctionPair, staleAfterMs,
+  buildRef, parseRef, roadLabel, roadClass, junctionSection, junctionPair, staleAfterMs, postContext,
   headingUsable, fmtDist,
 } from '../core/posts.js';
 
@@ -278,6 +278,21 @@ test('every post with a section is a mainline motorway post matched to its own c
   for (const [road, table] of Object.entries(sections.roads)) for (const ref of Object.keys(table)) {
     assert.ok(refs.has(`${road}|${ref}`), `${road} ${ref} is not a post`);
   }
+});
+
+test('the line under a post on the phone describes the post and says what its distance is from', async () => {
+  const posts = await loadPosts(), junctions = await json('junctions.json'), sections = await loadSections();
+  const at = (road, ref) => postContext(posts.find((p) => p.road === road && p.ref === ref), sections, junctions);
+  assert.equal(at('M27', 'P17/4A'), 'J4 – J5');
+  assert.equal(at('M27', 'P19/2A'), 'Within J5');
+  // No section in the records: the nearest junction, measured from the post, and it says so.
+  assert.match(at('A34', 'P13/2A'), /^.+ jct · \d+(\.\d+)? k?m from post$/);
+  // Interchange posts keep their caveat.
+  const link = posts.find((p) => p.link);
+  assert.equal(postContext(link, sections, junctions), `Link ${link.link} · survey date unknown`);
+  assert.equal(postContext(null, sections, junctions), '');
+  // Never a compass word, whatever the post.
+  for (const p of posts) assert.doesNotMatch(postContext(p, sections, junctions), /\b(north|south|east|west)bound\b/i);
 });
 
 test('a position goes stale after 15 s moving, 30 s at unknown speed, 2 minutes standing', () => {

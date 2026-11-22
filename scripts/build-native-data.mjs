@@ -22,9 +22,11 @@
 //     road       display name, e.g. "M27", "A3(M)", "Chilworth · M3 / M27"
 //     km/letter  the reference split for display ("17.4", "A"); empty if the
 //                recorded reference is not in the usual form (show ref instead)
-//     context    the line under the post: junction section ("J4 – J5", "At J5"),
-//                else the nearest junction from the post ("A303 jct · 349 m"),
-//                else the link label for interchange posts, else empty
+//     context    the line under the post (postContext in core/posts.js): the
+//                junction section from the records ("J4 – J5", "Within J5"),
+//                else the nearest junction and its distance from the post
+//                ("A303 jct · 349 m from post"), else empty; interchange posts
+//                give "Link M27B/M3B · survey date unknown"
 //
 // nearest-fixtures.tsv — sampled positions with the app's answer:
 //   lat  lng  heading  speed  useHeading  index  distM  headingUsed  marginM
@@ -41,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { haversine, angleDiff } from '../core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, parseRef, roadLabel, roadClass,
-  junctionSection, fmtDist, headingUsable,
+  postContext, fmtDist, headingUsable,
 } from '../core/posts.js';
 import { buildPostSections } from './post-sections.mjs';
 
@@ -61,13 +63,8 @@ const sections = buildPostSections(posts, (await json('network.json')).links);
 const clean = (s) => String(s ?? '').replace(/[\t\r\n]+/g, ' ').trim();
 const CLASS = { motorway: 'M', 'a-road': 'A', other: 'O' };
 
-function contextFor(p) {
-  if (p.link) return `Link ${p.link}`;
-  const section = junctionSection(p, sections);
-  if (section) return section.label;
-  const nj = nearestJunction(junctions, p.lat, p.lng, p.road);
-  return nj ? `${junctionLabel(p.road, nj.jct.jct)} · ${fmtDist(nj.dist)}` : '';
-}
+// The same function the web app uses when it hands a post to the phone.
+const contextFor = (p) => postContext(p, sections, junctions);
 
 const rows = posts.map((p) => {
   const parts = parseRef(p.ref);

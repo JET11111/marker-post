@@ -11,7 +11,7 @@ import * as diagnostics from './diagnostics.js';
 import { haversine } from './core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, nearestERA,
-  buildRef, parseRef, roadLabel, roadClass, junctionSection,
+  buildRef, parseRef, roadLabel, roadClass, junctionSection, postContext,
   fmtDist, HEADING_MIN_SPEED,
 } from './core/posts.js';
 
@@ -214,11 +214,9 @@ function renderNearest() {
   if (byPositionOnly) setText(note, 'Nearest post by position only. Check the carriageway.');
   show(note, byPositionOnly);
 
-  // What the phone's widgets and notification show under the post.
-  const context = post.link ? `Link ${post.link}`
-    : section ? section.label
-      : nj ? `${junctionLabel(post.road, nj.jct.jct)} · ${fmtDist(nj.dist)}` : '';
-  publishPost(post, context, confirmed);
+  // What the phone's widgets and notification show under the post: the same
+  // line the phone's own trackers use, which describes the post, not the vehicle.
+  publishPost(post, postContext(post, SECTIONS, JUNCTIONS), confirmed);
 }
 
 // GPS quality: green = trust it, amber = marginal, red = poor/unknown.
