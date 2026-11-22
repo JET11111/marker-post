@@ -210,6 +210,27 @@ export function onAppState(handler) {
 }
 
 /**
+ * Links that open the app: markerpost://map, markerpost://live/start and so on.
+ * Calls handler(path) with "map", "live/start"… for each link, including the
+ * one that launched the app. Native apps only; a web page has its own address.
+ */
+export function onAppLink(handler) {
+  if (!isNative) return;
+  const App = plugin('App');
+  const deliver = (address) => {
+    try {
+      const link = new URL(address);
+      if (link.protocol !== 'markerpost:') return;
+      handler(`${link.host}${link.pathname}`.replace(/\/+$/, '').toLowerCase());
+    } catch { /* not a link we understand */ }
+  };
+  try {
+    App.addListener('appUrlOpen', (event) => deliver(event?.url));
+    App.getLaunchUrl().then((launch) => { if (launch?.url) deliver(launch.url); }).catch(() => {});
+  } catch { /* App plugin missing: links simply open the app */ }
+}
+
+/**
  * Android hardware/gesture back. handler() returns true when it handled the
  * press (closed a sheet, went back to the first tab); otherwise the app is
  * sent to the background, as a native app would be.

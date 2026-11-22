@@ -98,7 +98,7 @@ R = 6371000
 toRad(d)      = (d * PI) / 180                      // multiply first, then divide
 haversine     : dLat = toRad(lat2 - lat1); dLng = toRad(lng2 - lng1)
                 s1 = sin(dLat / 2); s2 = sin(dLng / 2)
-                a = s1 * s1 + cos(toRad(lat1)) * cos(toRad(lat2)) * s2 * s2
+                a = (s1 * s1) + (cos(toRad(lat1)) * cos(toRad(lat2))) * (s2 * s2)   // the squares first, as written here
                 return 2 * R * asin(sqrt(a))
 angleDiff(a,b)= abs(((a - b + 540) mod 360) - 180)  // mod keeps the sign of the dividend
 usable        = useHeading && heading is a number && speed is a number && speed > 2.5
@@ -226,7 +226,28 @@ Same visual language as the app (docs: design canvas linked from the README).
 - No controls on anything shown while driving, except "Stop" in the Android
   notification.
 
-## 8. What cannot be checked without a device
+## 8. App links
+
+Both apps answer links that begin `markerpost://`. They are handled by the web
+code (`onAppLink` in platform.js, wired in app.js), so both platforms behave the
+same way:
+
+| Link | What it does |
+|---|---|
+| `markerpost://nearest`, `markerpost://map`, `markerpost://signs`, `markerpost://goto` | opens the app on that screen |
+| `markerpost://live/start` | opens the app and starts live tracking, if it is not already running |
+| `markerpost://live/stop` | stops live tracking |
+
+They exist for two reasons. A phone automation can use `markerpost://live/start`
+to start tracking when the phone connects to the vehicle (iOS: Shortcuts,
+Automation, CarPlay, Connects, Open URLs; iOS may ask you to unlock the phone
+first, because a Live Activity can only be started by an app that is on screen).
+And the automated checks on GitHub use them to drive the app in a simulator and
+an emulator, where nothing can press a button.
+
+A link can only do what the buttons in the app do. Unknown links just open the app.
+
+## 9. What cannot be checked without a device
 
 CI compiles both apps, runs the parity tests, and builds the widget extension
 for the simulator. It cannot show that a Live Activity appears on a CarPlay

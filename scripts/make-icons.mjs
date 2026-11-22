@@ -4,7 +4,7 @@
 //   node scripts/make-icons.mjs
 //
 // The mark is the marker post from the original icon: an amber post with a
-// pale cap, on near-black. Bitmaps are rendered with the Chrome already on the
+// pale cap, on the app's navy. Bitmaps are rendered with the Chrome already on the
 // machine (scripts/browser.mjs); the Android adaptive icon, its monochrome
 // (themed) layer and the launch icon are written as vector drawables, so they
 // need no bitmaps at all. The results are committed: nothing here runs in CI.
@@ -22,8 +22,8 @@ import { launch } from './browser.mjs';
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const out = (...p) => join(ROOT, ...p);
 
-const COLOUR = { tile: '#101114', post: '#FFB81C', cap: '#F2F2F7', ground: '#3A3A42' };
-const LAUNCH = { light: '#F2F2F7', dark: '#000000' }; // the app's own page backgrounds
+const COLOUR = { tile: '#0D2235', post: '#FFC23D', cap: '#F6F7F9', ground: '#2C4160' };
+const LAUNCH = { light: '#F2F2F7', dark: '#0A0F1A' }; // the app's own page backgrounds
 
 // The mark, drawn on a 1024 square and centred on it. Later shapes sit on top.
 const MARK = [
@@ -60,7 +60,7 @@ function iconSvg({ size, k, shape = 'square', background }) {
     // A 2732 px image is shown scaled to fill the screen, so the tile is about a fifth of a phone's width.
     const tile = size * 0.2, at = (size - tile) / 2;
     base = `<rect width="${size}" height="${size}" fill="${background}"/>`
-      + `<rect x="${at}" y="${at}" width="${tile}" height="${tile}" rx="${tile * 0.225}" fill="${background === LAUNCH.dark ? '#1C1C1E' : COLOUR.tile}"/>`;
+      + `<rect x="${at}" y="${at}" width="${tile}" height="${tile}" rx="${tile * 0.225}" fill="${COLOUR.tile}"/>`;
     mark = `<g transform="translate(${at} ${at})">${markSvg(tile, 1)}</g>`;
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${base}${mark}</svg>`;

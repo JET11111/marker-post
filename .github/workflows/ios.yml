@@ -1,8 +1,10 @@
 # Checks the iPhone app without an Apple account, a Mac or any secrets:
 #   * the Swift nearest-post lookup gives the same answers as the web app;
 #   * the app, its plugin and the widget / Live Activity extension compile, and
-#     the extension ends up inside the app.
-# Nothing here is signed or uploaded. TestFlight is ios-testflight.yml.
+#     the extension ends up inside the app;
+#   * the app runs in an iPhone simulator, fed a drive along the M27, with
+#     pictures kept of each step.
+# Nothing here is signed for a real phone or uploaded. TestFlight is ios-testflight.yml.
 name: ios
 
 on:
@@ -121,7 +123,9 @@ jobs:
       - name: Fetch the Swift packages
         run: xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
 
-      - name: Build the app and the widget extension for the simulator (unsigned)
+      # A simulator build needs no Apple account: Xcode signs it "to run locally",
+      # which also carries the App Group the app and its widgets share.
+      - name: Build the app and the widget extension for the simulator
         run: |
           set -o pipefail
           xcodebuild build \
@@ -130,10 +134,26 @@ jobs:
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
             2>&1 | tee "$RUNNER_TEMP/xcodebuild-simulator.log" | xcbeautify --renderer github-actions
       - name: The extension is inside the app
         run: test -d "$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/App.app/PlugIns/MarkerPostWidgets.appex"
+
+      # The nearest thing to a real iPhone that GitHub has: start the app in a
+      # simulator, feed it a drive along the M27, start live tracking, and keep
+      # pictures of each step. It fails on a crash; what the pictures show is for
+      # a person to judge. New and still being proven, so it does not fail the build.
+      - name: Run it in an iPhone simulator and take pictures
+        if: matrix.pick == '26'
+        continue-on-error: true
+        run: node scripts/smoke-ios.mjs "$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/App.app" "$RUNNER_TEMP/simulator"
+      - name: Keep the pictures
+        if: always() && matrix.pick == '26'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: iphone-simulator
+          path: ${{ runner.temp }}/simulator
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build for a real iPhone, as a release (unsigned)
         run: |

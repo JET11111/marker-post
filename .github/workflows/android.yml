@@ -1,4 +1,5 @@
-# Builds the Android app: lookup tests, a debug APK to sideload and a release APK.
+# Builds the Android app: lookup tests, a debug APK to sideload and a release
+# APK, then runs it on an emulator to check that it really works.
 #
 # Works with no secrets at all: the APKs are then signed with a key made for
 # that run only. With the four MP_* signing secrets (docs/android-app.md) they
@@ -144,6 +145,52 @@ jobs:
             android/app/build/reports
           if-no-files-found: ignore
           retention-days: 7
+
+  emulator:
+    # The nearest thing to a real phone that GitHub has: install the debug APK
+    # on an Android emulator, feed it a drive along the M27, and check that the
+    # app shows the right post, draws the map, and that live tracking puts the
+    # post in an ongoing notification and stops cleanly. Pictures of each step
+    # are kept. Emulators are occasionally flaky, and this check is new, so it
+    # reports its result without failing the build.
+    name: Run it on an emulator
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: marker-post-android
+          path: apk
+      - name: Let the emulator use hardware acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: node scripts/smoke-android.mjs "$(ls apk/*-debug.apk | head -n 1)" emulator-pictures
+      - name: Keep the pictures
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-emulator
+          path: emulator-pictures
+          if-no-files-found: ignore
+          retention-days: 14
 
   publish:
     # Only when you tick the box on a manual run: makes a public download link.

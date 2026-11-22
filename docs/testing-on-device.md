@@ -10,8 +10,8 @@ When something is wrong, the most useful thing you can send is: what you expecte
 
 1. Open the app. No white flash at night: the screen should go from the launch screen straight to the app's own background.
 2. Allow location when asked ("While using", precise).
-3. **Nearest** shows a road badge, a large post number, the carriageway letter in an amber block and the junction section, within a few seconds of a GPS fix.
-4. Stand still. The carriageway letter may be **outlined** rather than filled: that is correct, it means your direction of travel has not confirmed which carriageway you are on.
+3. **Nearest** shows the post's reference in very large text (for example 20/9A) with the road beneath it in amber, within a few seconds of a GPS fix. The card below gives the junction section, the distance, the nearest junction and, on smart motorways, the nearest emergency area reference.
+4. Stand still. The small line under the card may say "nearest by position only, check the carriageway": that is correct, it means your direction of travel has not confirmed which carriageway you are on.
 5. Switch the phone to dark mode and back. The app follows.
 6. Turn the phone on its side. The layout changes to a wide one and nothing is cut off, including beside the camera cut-out.
 7. Switch on aeroplane mode, close the app completely and open it again. Nearest still works; **Map** still shows the network and (in the phone apps) the street map; **Signs** says it is showing a saved copy and when it was saved.
@@ -19,11 +19,11 @@ When something is wrong, the most useful thing you can send is: what you expecte
 
 ## B. On the road (as a passenger, or in a cradle)
 
-1. With **Prefer my direction of travel** on, the letter becomes **filled** within a few seconds of moving off, and matches the carriageway you are on.
+1. With **Prefer my direction of travel** on, the "by position only" note goes within a few seconds of moving off, and the letter matches the carriageway you are on.
 2. The post number counts up or down every 100 metres, in step with the posts on the verge. Compare a few. If it is consistently one post behind or ahead, note your speed and tell me.
 3. Pass under or over another road, and through an interchange. The readout should not jump to the other road while you are moving on the main carriageway. Slip roads and link roads show their own references where the data has them.
 4. Go through a place with no signal. Nothing changes.
-5. Stop on the hard shoulder or in an emergency area (when you are there anyway). The post should stay put and the letter stay filled for the same carriageway.
+5. Stop on the hard shoulder or in an emergency area (when you are there anyway). The post should stay put, on the same carriageway, without the "by position only" note.
 6. Cover the phone or go under cover until GPS is lost. Within about 15 seconds while moving, the readout **dims** and says "No GPS update for …" and "last known post". It must never keep showing an old post as if it were current.
 
 ## C. iPhone: Live Activity

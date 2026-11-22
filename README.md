@@ -32,7 +32,7 @@ These rules are deliberate. Please keep them when changing anything.
 
 - Unknown stays unknown. A missing record is shown as not recorded, never as "none".
 - Distances are straight-line, and say so. They are not driving distances.
-- A carriageway letter that could not be confirmed from your direction of travel is shown outlined, not filled.
+- A carriageway that could not be confirmed from your direction of travel is said to be so: the first page notes "nearest by position only, check the carriageway", and the Lock Screen, notification and widgets show the letter outlined instead of filled.
 - Older and unverified records (for example the 2025 emergency area list) stay labelled as such.
 - A position that has gone stale never looks current: the readout dims and says when the last fix was.
 - Widgets show a "last updated" time and never claim to be live. The Live Activity and the Android notification are the live displays.

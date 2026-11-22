@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="color-scheme" content="light dark" />
   <meta name="theme-color" id="theme-color-light" media="(prefers-color-scheme: light)" content="#F2F2F7" />
-  <meta name="theme-color" id="theme-color-dark" media="(prefers-color-scheme: dark)" content="#000000" />
+  <meta name="theme-color" id="theme-color-dark" media="(prefers-color-scheme: dark)" content="#0A0F1A" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,8 +17,8 @@
   <!-- Paint the right background before any stylesheet arrives: no white flash at night. -->
   <style>
     html { background: #F2F2F7; }
-    @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) { background: #000000; } }
-    html[data-theme="dark"] { background: #000000; }
+    @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) { background: #0A0F1A; } }
+    html[data-theme="dark"] { background: #0A0F1A; }
   </style>
   <script>
     // Apply the appearance choice before first paint: ?theme=light|dark for
@@ -33,56 +33,69 @@
 </head>
 <body>
   <main id="app">
-    <!-- NEAREST MARKER POST -->
+    <!-- NEAREST MARKER POST
+         This page keeps the layout the app has always had, at the owner's
+         request: the recorded reference as large as the screen allows, the road
+         beneath it, and a short list. Please do not restyle it without asking. -->
     <section id="view-nearest" class="view view-nearest" aria-label="Nearest marker post">
-      <header class="screen-head">
-        <h1 class="screen-label">Nearest marker post</h1>
-        <div class="head-actions">
+      <header class="np-topbar">
+        <div class="np-brand">
+          <span class="np-brand-mark" aria-hidden="true"></span>
+          <span class="np-brand-text">Marker Post<small>Hampshire</small></span>
+        </div>
+        <div class="np-gps">
           <span id="offline" class="pill pill-bad hidden">Offline</span>
-          <span id="gps-pill" class="pill" role="status" aria-live="polite"><i id="gps-dot" class="dot"></i><span id="gps-text">Starting</span></span>
-          <button id="open-about" class="icon-btn" type="button" aria-label="Settings and about">
+          <span id="gps-pill" class="np-status" role="status" aria-live="polite"><i id="gps-dot" class="dot"></i><span id="gps-text">Starting</span><span id="gps-acc" class="np-acc"></span></span>
+          <button id="open-about" class="np-about" type="button" aria-label="Settings and about">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/></svg>
           </button>
         </div>
       </header>
 
-      <div id="hero" class="hero" data-state="waiting">
-        <span id="np-road" class="road-badge"></span>
-        <div id="np-post" class="hero-post" aria-live="off">
-          <span id="np-km" class="post-km">—</span>
-          <span id="np-chip" class="cway-chip none"><span id="np-letter"></span></span>
+      <div class="np-main">
+        <div id="hero" class="np-hero" data-state="waiting">
+          <h1 class="np-eyebrow">Nearest marker post</h1>
+          <div id="np-ref" class="np-ref" aria-live="off">—</div>
+          <div class="np-road-line"><span id="np-road" class="np-road">—</span></div>
         </div>
-        <div id="np-section" class="hero-section"></div>
-        <div id="np-sub" class="hero-sub">Waiting for GPS…</div>
-        <div id="np-note" class="hero-sub warn hidden"></div>
         <div id="np-alert" class="callout callout-compact hidden" role="status"></div>
       </div>
 
-      <div class="group">
-        <div id="np-jct-row" class="row hidden">
-          <span class="row-label">Nearest junction</span>
-          <span class="row-value"><b id="np-jct">—</b><span class="row-sub" id="np-jct-dist"></span></span>
+      <div class="np-side">
+        <div class="np-info">
+          <div id="np-section-row" class="np-row hidden">
+            <span class="np-lbl" id="np-section-lbl">Between junctions</span>
+            <span class="np-val" id="np-section"></span>
+          </div>
+          <div class="np-row">
+            <span class="np-lbl">Distance to post · straight-line</span>
+            <span class="np-val" id="np-dist">—</span>
+          </div>
+          <div id="np-jct-row" class="np-row hidden">
+            <span class="np-lbl">Nearest junction</span>
+            <span class="np-val"><span id="np-jct">—</span> <span class="np-sub" id="np-jct-dist"></span></span>
+          </div>
+          <div id="np-era-row" class="np-row hidden">
+            <span class="np-lbl">ERA reference · unverified</span>
+            <span class="np-val"><span id="np-era">—</span> <span class="np-sub" id="np-era-dist"></span></span>
+          </div>
         </div>
-        <div id="np-era-row" class="row hidden">
-          <span class="row-label">ERA reference · unverified</span>
-          <span class="row-value"><b id="np-era">—</b><span class="row-sub" id="np-era-dist"></span></span>
-        </div>
-        <label class="row row-switch">
-          <span class="row-title">Prefer my direction of travel</span>
-          <input type="checkbox" id="heading-toggle" checked />
-          <span class="switch" aria-hidden="true"></span>
-        </label>
-      </div>
 
-      <div class="actions">
+        <p id="np-meta" class="np-meta">Waiting for GPS…</p>
+        <button id="np-map" class="np-btn" type="button">Explore on the network map ↗</button>
+
         <button id="live-toggle" class="btn btn-primary hidden" type="button" aria-pressed="false">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/></svg>
           <span id="live-label">Start live tracking</span>
         </button>
         <p id="live-note" class="note hidden"></p>
-        <button id="np-map" class="btn btn-secondary" type="button">Show on map</button>
+
+        <label class="np-switch">
+          <span>Prefer my direction of travel</span>
+          <input type="checkbox" id="heading-toggle" checked />
+          <span class="np-track" aria-hidden="true"><span class="np-thumb"></span></span>
+        </label>
       </div>
-      <p id="np-meta" class="meta"></p>
     </section>
 
     <!-- VMS SIGNS -->

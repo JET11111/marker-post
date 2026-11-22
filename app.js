@@ -67,8 +67,6 @@ async function loadData() {
 }
 
 // ---------- the big post display (shared by Nearest and Go to) ----------
-const landscapeQuery = window.matchMedia('(orientation: landscape) and (max-height: 540px)');
-const heroMax = () => (landscapeQuery.matches ? 150 : 140);
 const fitCache = new WeakMap();
 
 /** Scale the number-and-carriageway pair so it always fits its container. */
@@ -110,10 +108,19 @@ function paintPost(ids, post, { confirmed = true, maxPx }) {
   fitPost(el(ids.fit), maxPx);
 }
 
-const NP = { road: 'np-road', km: 'np-km', chip: 'np-chip', letter: 'np-letter', fit: 'np-post' };
 const RP = { road: 'r-road', km: 'r-km', chip: 'r-chip', letter: 'r-letter', fit: 'r-post' };
 
 // ---------- nearest view ----------
+// This page keeps the layout the app has always had (the owner prefers it):
+// the post's reference as large as the screen allows, with the road beneath
+// it and a short list. NP_MAX is the largest the reference is ever drawn, in
+// pixels.
+const NP_MAX = 158;
+
+// The records put a "P" in front of every reference ("P20/9A"). The big text
+// leaves it out, as the owner asked: "20/9A". A reference that is not in that
+// form is shown exactly as recorded.
+const bigRef = (ref) => String(ref).replace(/^P(?=\d)/, '');
 
 // The carriageway is "confirmed" when the direction of travel chose it. After
 // stopping, it stays confirmed while the nearest post is still on the same
@@ -157,37 +164,23 @@ function renderNearest() {
   const { post, dist, headingUsed } = findNearest(POSTS, p.lat, p.lng, p.heading, p.speed, useHeading);
   if (!post) return;
   const confirmed = carriagewayConfirmed(post, headingUsed, p);
-  paintPost(NP, post, { confirmed, maxPx: heroMax() });
 
-  // Third line: the junction section where the records support one; otherwise
-  // the nearest junction; otherwise nothing. Never a guess.
-  const section = junctionSection(post, junctionIndex);
-  const nj = nearestJunction(JUNCTIONS, p.lat, p.lng, post.road);
-  const sectionEl = el('np-section');
-  let junctionInHero = false;
-  if (post.link) {
-    setText(sectionEl, `Link ${post.link}`);
-    sectionEl.classList.add('fallback');
-  } else if (section) {
-    setText(sectionEl, section.label);
-    sectionEl.classList.remove('fallback');
-  } else if (nj) {
-    setText(sectionEl, `${junctionLabel(post.road, nj.jct.jct)} · ${fmtDist(nj.dist)}`);
-    sectionEl.classList.add('fallback');
-    junctionInHero = true;
-  } else {
-    setText(sectionEl, '');
-  }
+  const ref = el('np-ref');
+  setText(ref, bigRef(post.ref));
+  ref.dataset.confirmed = String(confirmed);
+  fitPost(ref, NP_MAX);
+  setText(el('np-road'), roadLabel(post.road));
+  setText(el('np-dist'), fmtDist(dist));
 
-  setText(el('np-sub'),
-    `Post ${post.ref} · ${fmtDist(dist)} away, straight-line${post.link ? ' · source survey date unknown' : ''}`);
-  const note = el('np-note');
-  const byPositionOnly = !confirmed && Boolean(parseRef(post.ref));
-  if (byPositionOnly) setText(note, 'Nearest post by position only. Check the carriageway.');
-  show(note, byPositionOnly);
+  // The junction section, where the records support one. Never a guess.
+  const section = post.link ? null : junctionSection(post, junctionIndex);
+  setText(el('np-section-lbl'), section?.kind === 'at' ? 'Junction' : 'Between junctions');
+  setText(el('np-section'), section ? section.label : '');
+  show(el('np-section-row'), Boolean(section));
 
   const row = el('np-jct-row');
-  if (nj && !junctionInHero) {
+  const nj = nearestJunction(JUNCTIONS, p.lat, p.lng, post.road);
+  if (nj) {
     setText(el('np-jct'), junctionLabel(post.road, nj.jct.jct));
     setText(el('np-jct-dist'), fmtDist(nj.dist));
     show(row, true);
@@ -206,25 +199,38 @@ function renderNearest() {
   } else {
     show(eraRow, false);
   }
-  setText(el('np-meta'), `Updated ${clock(lastFixAt)}`);
-  publishPost(post, sectionEl.textContent, confirmed);
+
+  // The line under the list: when the post was read, and what the reader
+  // should know about it. A carriageway chosen by position alone is said so.
+  const byPositionOnly = !confirmed && Boolean(parseRef(post.ref));
+  setText(el('np-meta'), post.link
+    ? `${post.link} · source survey date unknown`
+    : `updated ${clock(lastFixAt)}${byPositionOnly ? ' · nearest by position only, check the carriageway' : ''}`);
+
+  // What the phone's widgets and notification show under the post.
+  const context = post.link ? `Link ${post.link}`
+    : section ? section.label
+      : nj ? `${junctionLabel(post.road, nj.jct.jct)} · ${fmtDist(nj.dist)}` : '';
+  publishPost(post, context, confirmed);
 }
 
 // GPS quality: green = trust it, amber = marginal, red = poor/unknown.
-function setGps(state, text) {
+function setGps(state, text, accuracy = '') {
   const dot = el('gps-dot');
   dot.classList.remove('live', 'wait', 'err');
   if (state) dot.classList.add(state);
   setText(el('gps-text'), text);
+  setText(el('gps-acc'), accuracy);
 }
 
 function onFix(fix) {
   lastPos = fix;
   lastFixAt = Date.now();
   const acc = fix.accuracy;
+  // A made-up position must never be mistaken for a real one.
   if (fix.simulated) setGps('wait', 'Simulated');
   else setGps(acc == null ? 'wait' : acc <= 10 ? 'live' : acc <= 25 ? 'wait' : 'err',
-    acc == null ? 'GPS' : `GPS ±${Math.round(acc)} m`);
+    'Live', acc == null ? '' : `±${Math.round(acc)} m`);
   el('hero').dataset.state = 'live';
   show(el('np-alert'), false);
   window.dispatchEvent(new CustomEvent('markerpost:position', { detail: lastPos }));
@@ -236,7 +242,7 @@ function onGeoError(err) {
   setGps('err', none ? 'No GPS' : blocked ? 'Location blocked' : 'GPS error');
   if (!lastPos) {
     el('hero').dataset.state = 'error';
-    setText(el('np-sub'), none ? 'No geolocation on this device.'
+    setText(el('np-meta'), none ? 'No geolocation on this device.'
       : blocked ? 'Location is blocked. Allow location for Marker Post in Settings.'
         : 'No GPS position yet.');
   }
@@ -717,7 +723,7 @@ function switchView(view, { announce = true } = {}) {
     // GPS updates that arrived while this view was hidden could not be
     // measured (width read 0) — refit now that it is on screen.
     if (lastPos) renderNearest();
-    fitPost(el('np-post'), heroMax());
+    fitPost(el('np-ref'), NP_MAX);
   }
   if (view === 'goto' && !el('g-result').classList.contains('hidden')) fitPost(el('r-post'), 76);
   if (view !== 'map') el('app').scrollTop = 0;
@@ -803,6 +809,10 @@ async function initLive() {
     if (!wasActive && !liveActive) {
       toast(LIVE_REASONS[s?.reason] || 'Live tracking could not start.');
       P.haptic('warning');
+    } else if (!wasActive && s?.reason === 'notifications-denied') {
+      // Android: tracking runs without the permission, but there is nothing to see. Say so.
+      toast('Tracking is on, but notifications are switched off for Marker Post, so the post cannot be shown. Allow them in Settings.');
+      P.haptic('warning');
     } else {
       P.haptic(liveActive ? 'success' : 'light');
     }
@@ -879,7 +889,7 @@ async function init() {
     diagnostics.note('error', `Post data failed to load: ${e?.message || e}`);
     setGps('err', 'No data');
     el('hero').dataset.state = 'error';
-    setText(el('np-sub'), 'Failed to load post data.');
+    setText(el('np-meta'), 'Failed to load post data.');
     return;
   }
 
@@ -953,11 +963,11 @@ async function init() {
   }
 
   const refit = () => {
-    fitPost(el('np-post'), heroMax());
+    fitPost(el('np-ref'), NP_MAX);
     if (!el('g-result').classList.contains('hidden')) fitPost(el('r-post'), 76);
   };
   window.addEventListener('resize', refit);
-  landscapeQuery.addEventListener('change', refit);
+  window.matchMedia('(orientation: landscape)').addEventListener('change', refit);
 
   window.addEventListener('online', updateOnline);
   window.addEventListener('offline', updateOnline);
@@ -975,7 +985,16 @@ async function init() {
   setInterval(checkStale, 1000);
 
   startGeo();
-  initLive();
+  const liveReady = initLive().catch((e) => diagnostics.note('error', `Live tracking set-up failed: ${e?.message || e}`));
+  // Links such as markerpost://map or markerpost://live/start (a Shortcuts automation
+  // can use the last one to start tracking when the phone connects to the car).
+  P.onAppLink(async (link) => {
+    if (['nearest', 'map', 'signs', 'goto'].includes(link)) { switchView(link); return; }
+    // A link can arrive before the tracking button knows whether a session is running.
+    await liveReady;
+    if (link === 'live/start') { switchView('nearest'); if (!liveActive) el('live-toggle').click(); }
+    else if (link === 'live/stop') { if (liveActive) el('live-toggle').click(); }
+  });
 
   if (config.target === 'pwa' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});

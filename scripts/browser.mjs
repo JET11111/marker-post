@@ -88,7 +88,8 @@ export async function launch({ port = 9333 + Math.floor(Math.random() * 500), he
   };
 }
 
-function connect(url) {
+/** Attach to a page that is already open, by its DevTools WebSocket address (used for the Android emulator check). */
+export function connect(url) {
   return new Promise((resolve, reject) => {
     const socket = new WebSocket(url);
     let nextId = 1;

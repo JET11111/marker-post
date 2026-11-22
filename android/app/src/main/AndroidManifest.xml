@@ -24,6 +24,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Links that open the app, for automations and shortcuts:
+                 markerpost://nearest, markerpost://map, markerpost://signs,
+                 markerpost://goto, markerpost://live/start, markerpost://live/stop -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="markerpost" />
+            </intent-filter>
+
         </activity>
 
         <provider
