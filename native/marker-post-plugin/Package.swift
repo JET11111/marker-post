@@ -50,7 +50,9 @@ if coreOnly {
 
 let package = Package(
     name: "MarkerPostNative",
-    platforms: [.iOS(.v18), .macOS(.v13)],
+    // iOS 18 is written as text: the named constant only exists from package
+    // format 6.0, and this package stays on 5.9 so that it is built in Swift 5 mode.
+    platforms: [.iOS("18.0"), .macOS(.v13)],
     products: products,
     dependencies: dependencies,
     targets: targets

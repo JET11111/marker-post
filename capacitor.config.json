@@ -16,5 +16,12 @@
       "launchFadeOutDuration": 150,
       "showSpinner": false
     }
+  },
+  "experimental": {
+    "ios": {
+      "spm": {
+        "swiftToolsVersion": "6.0"
+      }
+    }
   }
 }
