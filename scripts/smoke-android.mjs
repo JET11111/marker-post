@@ -36,9 +36,16 @@ const openLink = (path) => adb('shell', 'am', 'start', '-W', '-a', 'android.inte
 
 // ------------------------------------------------------------ a moving GPS
 
-// Standard NMEA sentences, the text a real GPS receiver produces. They carry
-// speed and direction of travel as well as position, which a bare "position"
-// command does not.
+// NMEA sentences, the text a real GPS receiver produces. They carry speed and
+// direction of travel as well as position, which the emulator's simpler
+// "geo fix" command does not (it always reports a heading of north).
+//
+// The emulator's receiver reads exactly two sentences, in exactly the layout
+// the emulator itself writes (device/generic/goldfish, hals/gnss/GnssHwListener.cpp):
+//   $GPGGA,hhmmss,ddmm.mmmm,N,dddmm.mmmm,W,1,10,0.8,60.0,M,0.,M,,,*cs
+//   $GPRMC,hhmmss,A,ddmm.mmmm,N,dddmm.mmmm,W,knots,course,ddmmyy,0.0,W*cs
+// A time with decimals, or an empty field near the end, and it ignores the lot.
+// Only $GPRMC produces a position; $GPGGA gives it the altitude.
 const points = route();
 const R = 6371000, rad = Math.PI / 180;
 const dist = (a, b) => 2 * R * Math.asin(Math.sqrt(Math.sin((b.lat - a.lat) * rad / 2) ** 2
@@ -62,19 +69,19 @@ function nmea(body) {
 }
 function degMin(value, width) {
   const abs = Math.abs(value), deg = Math.floor(abs), min = (abs - deg) * 60;
-  return `${String(deg).padStart(width, '0')}${min.toFixed(5).padStart(8, '0')}`;
+  return `${String(deg).padStart(width, '0')}${min.toFixed(4).padStart(7, '0')}`;
 }
 let travelled = 0;
 function feedGps() {
   const p = positionAt(travelled);
   travelled += SPEED;
   const now = new Date();
-  const time = `${two(now.getUTCHours())}${two(now.getUTCMinutes())}${two(now.getUTCSeconds())}.00`;
+  const time = `${two(now.getUTCHours())}${two(now.getUTCMinutes())}${two(now.getUTCSeconds())}`;
   const date = `${two(now.getUTCDate())}${two(now.getUTCMonth() + 1)}${two(now.getUTCFullYear() % 100)}`;
   const lat = `${degMin(p.lat, 2)},${p.lat >= 0 ? 'N' : 'S'}`, lng = `${degMin(p.lng, 3)},${p.lng >= 0 ? 'E' : 'W'}`;
   const knots = (SPEED / 0.514444).toFixed(1);
-  quiet('emu', 'geo', 'nmea', nmea(`GPGGA,${time},${lat},${lng},1,10,0.8,60.0,M,47.0,M,,`));
-  quiet('emu', 'geo', 'nmea', nmea(`GPRMC,${time},A,${lat},${lng},${knots},${p.course.toFixed(1)},${date},,,A`));
+  quiet('emu', 'geo', 'nmea', nmea(`GPGGA,${time},${lat},${lng},1,10,0.8,60.0,M,0.,M,,,`));
+  quiet('emu', 'geo', 'nmea', nmea(`GPRMC,${time},A,${lat},${lng},${knots},${p.course.toFixed(1)},${date},0.0,W`));
 }
 
 // ---------------------------------------------------------------- the test
@@ -115,6 +122,8 @@ try {
   }, 90000);
   const km = Number(`${REF.exec(ref)[1]}.${REF.exec(ref)[2]}`);
   const road = await text('np-road');
+  const seen = /last location=Location\[gps ([-\d.]+),([-\d.]+)/.exec(quiet('shell', 'dumpsys', 'location'));
+  console.log(`  the phone's GPS last reported: ${seen ? `${Number(seen[1]).toFixed(3)}, ${Number(seen[2]).toFixed(3)}` : 'nothing'} (the drive starts at ${points[0].lat.toFixed(3)}, ${points[0].lng.toFixed(3)})`);
   check(road === EXPECT.road, 'the road is the M27', road);
   check(km >= EXPECT.minKm && km <= EXPECT.maxKm, 'the post is on the stretch being driven', ref);
   await until('the carriageway to be confirmed from the direction of travel', async () =>

@@ -181,7 +181,9 @@ jobs:
           arch: x86_64
           profile: pixel_7
           disable-animations: true
-          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          # -no-passive-gps: without it the emulator reports its own made-up position
+          # every second, on top of the drive the check feeds it.
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-passive-gps
           script: node scripts/smoke-android.mjs "$(ls apk/*-debug.apk | head -n 1)" emulator-pictures
       - name: Keep the pictures
         if: always()
