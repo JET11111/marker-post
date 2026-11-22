@@ -1,7 +1,9 @@
 name: map-checks
 on:
   pull_request:
-    paths: ['map*', 'app.js', 'index.html', 'sw.js', 'data/network.json', 'data/posts-supplemental.json', 'scripts/fetch-network.mjs', 'scripts/fetch-supplemental-posts.py', 'tests/**', '.github/workflows/map-checks.yml']
+    paths: ['*.js', '*.css', 'index.html', 'core/**', 'data/network.json', 'data/posts.json', 'data/junctions.json', 'data/posts-supplemental.json', 'scripts/**', 'tests/**', 'vendor/**', 'package.json', '.github/workflows/map-checks.yml']
+  push:
+    branches: ['feature/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -13,7 +15,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # The app itself has no dependencies; the native build needs the Capacitor runtime.
+      - run: npm ci --ignore-scripts
       - run: node --test tests/*.test.mjs
       - run: node scripts/fetch-network.mjs --validate
-      - run: node --check map.mjs && node --check app.js && node --check sw.js
+      - run: node scripts/check.mjs
       - run: python3 -m py_compile scripts/fetch-supplemental-posts.py

@@ -1,2 +1,17 @@
 .wrangler/
 node_modules/
+
+# Build output and generated files
+www/
+tiles/
+*.tmp
+
+# Signing material never belongs in the repository
+*.jks
+*.keystore
+*.p12
+*.p8
+*.mobileprovision
+keystore.properties
+.env
+.env.*
