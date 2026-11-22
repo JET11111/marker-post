@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 import MarkerPostCore
 
@@ -136,6 +137,48 @@ final class NearestParityTests: XCTestCase {
         XCTAssertLessThan(tiesSkipped, fixtures.rows.count / 2, "too many fixtures are ties to prove anything")
         XCTAssertTrue(problems.isEmpty,
                       "\(problems.count) difference(s) from the web app in \(fixtures.rows.count) fixtures:\n"
+                        + problems.prefix(25).joined(separator: "\n"))
+    }
+
+    /// The sum inside the distance must be built in the web app's order
+    /// (docs/native-apps.md, section 3): each square first, then the two
+    /// cosines multiplied together, then that product times the second square.
+    ///
+    /// Built in any other order the distance comes out a hair different. That
+    /// is far inside the tolerance of the test above, so that test cannot see
+    /// it; but it is no longer the web app's own number, and it is enough to
+    /// break a tie between two posts the other way. So this test compares
+    /// exact values, against the same sum written out here in the right order.
+    func testTheDistanceIsBuiltInTheWebAppsOrder() throws {
+        let store = try PostStore(tsv: resourceText("posts"))
+        let fixtures = try loadFixtures()
+
+        var problems: [String] = []
+        // How many of these distances another order would change. If it were
+        // none, this test could not tell the orders apart and would prove nothing.
+        var orderMatters = 0
+        for fixture in fixtures.rows where store.posts.indices.contains(fixture.index) {
+            let post = store.posts[fixture.index]
+            let s1: Double = sin(Geo.toRad(post.lat - fixture.lat) / 2)
+            let s2: Double = sin(Geo.toRad(post.lng - fixture.lng) / 2)
+            let cosines: Double = cos(Geo.toRad(fixture.lat)) * cos(Geo.toRad(post.lat))
+            let inOrder: Double = (s1 * s1) + cosines * (s2 * s2)
+            let leftToRight: Double = s1 * s1 + cosines * s2 * s2
+            let expected: Double = 2 * Geo.earthRadiusM * asin(sqrt(inOrder))
+            let otherwise: Double = 2 * Geo.earthRadiusM * asin(sqrt(leftToRight))
+
+            let got = Geo.haversine(fixture.lat, fixture.lng, post.lat, post.lng)
+            if got != expected {
+                problems.append("line \(fixture.line): \(got) m, expected exactly \(expected) m")
+            }
+            if otherwise != expected {
+                orderMatters += 1
+            }
+        }
+
+        XCTAssertGreaterThan(orderMatters, 0, "no fixture tells one order from another, so this test proves nothing")
+        XCTAssertTrue(problems.isEmpty,
+                      "\(problems.count) distance(s) not built in the web app's order:\n"
                         + problems.prefix(25).joined(separator: "\n"))
     }
 
@@ -398,6 +441,32 @@ final class LookupRuleTests: XCTestCase {
         XCTAssertFalse(StaleRule.isStale(fixAge: 120, lastSpeed: 1))
         XCTAssertTrue(StaleRule.isStale(fixAge: 121, lastSpeed: 1))
         XCTAssertFalse(StaleRule.isStale(fixAge: -5, lastSpeed: 30), "a fix stamped slightly in the future is not stale")
+    }
+
+    /// iOS stops sending positions once the phone stops moving. That pause
+    /// only excuses a fix that was taken where the vehicle came to rest.
+    func testAPauseOnlyExcusesAFixTakenWhereTheVehicleStopped() {
+        let began = Date(timeIntervalSince1970: 1_795_000_000)
+        let justBefore = began.addingTimeInterval(-2)
+
+        XCTAssertTrue(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: justBefore, lastSpeed: 0))
+        XCTAssertTrue(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: justBefore, lastSpeed: nil))
+        XCTAssertTrue(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: justBefore, lastSpeed: 2.5),
+                      "at the threshold counts as stopped")
+        XCTAssertFalse(StaleRule.pauseExplainsSilence(pauseBegan: nil, fixTime: justBefore, lastSpeed: 0),
+                       "updates are not paused")
+        XCTAssertFalse(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: justBefore, lastSpeed: 30),
+                       "a fix taken at speed is not where the vehicle stopped")
+
+        // How long before the pause the fix may have been taken.
+        XCTAssertTrue(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: began.addingTimeInterval(-15), lastSpeed: 0))
+        XCTAssertFalse(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: began.addingTimeInterval(-16), lastSpeed: 0),
+                       "positions had already stopped arriving before the pause")
+
+        // A fix that arrives while updates are paused.
+        let during = began.addingTimeInterval(40)
+        XCTAssertTrue(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: during, lastSpeed: 0))
+        XCTAssertFalse(StaleRule.pauseExplainsSilence(pauseBegan: began, fixTime: during, lastSpeed: 30))
     }
 
     // MARK: snapshot

@@ -29,7 +29,11 @@ public enum Geo {
         let s1 = sin(dLat / 2)
         let s2 = sin(dLng / 2)
         // Squares are written as s * s, never pow(), so no library rounding is involved.
-        let a = s1 * s1 + cos(toRad(lat1)) * cos(toRad(lat2)) * s2 * s2
+        // The brackets are the JavaScript's own order (there "**" is worked out
+        // before "*"): each square first, then the two cosines multiplied
+        // together, then that product times the second square. Without them
+        // Swift would multiply left to right and round differently.
+        let a = (s1 * s1) + (cos(toRad(lat1)) * cos(toRad(lat2))) * (s2 * s2)
         return 2 * earthRadiusM * asin(sqrt(a))
     }
 

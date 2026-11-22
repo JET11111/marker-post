@@ -242,8 +242,10 @@ public final class MarkerTracker {
     /// The post from the newest fix, with `stale` kept up to date.
     private var latest: PostSnapshot?
     private var problem: TrackingProblem?
-    /// True when iOS has said the phone is not moving and has paused updates.
-    private var systemSaysStationary = false
+    /// When iOS said that the phone had stopped moving and that it was pausing
+    /// its updates. Nil while it has not said so. A pause does not by itself
+    /// excuse an old position: see `pauseExplainsSilence`.
+    private var stationarySince: Date?
     /// Speed of the newest fix in metres per second. Nil when it had none.
     private var lastSpeed: Double?
 
@@ -251,6 +253,9 @@ public final class MarkerTracker {
     private struct Shown {
         var snapshot: PostSnapshot?
         var problem: String?
+        /// True when iOS has paused its updates and that accounts for the post
+        /// not being refreshed (see `pauseExplainsSilence`). Only then is the
+        /// Live Activity left without a date to go out of date by itself.
         var stationary: Bool
 
         static let waiting = Shown(snapshot: nil, problem: nil, stationary: false)
@@ -289,13 +294,23 @@ public final class MarkerTracker {
     /// again (possibly in the background, with no one looking), carry on: the
     /// background session can be rejoined at launch, but not created afresh
     /// later. A session older than 14 hours is treated as over.
+    ///
+    /// With no session to carry on, any Live Activity still on the phone was
+    /// left behind by one that died: the app was closed mid-shift and not
+    /// opened again in time, or it was suspended before a stop had finished
+    /// removing them. Nothing would ever update it, so it is removed here,
+    /// together with a follow-on that is still waiting to start.
     public func resumeAfterLaunch() {
         guard !isActive, !isStarting else { return }
-        guard let saved = SavedSession.load() else { return }
+        guard let saved = SavedSession.load() else {
+            liveActivity.endAll(finalSnapshot: nil)
+            return
+        }
         let age = Date().timeIntervalSince(saved.since)
         // A start time in the future means the clock was changed: not trustworthy either.
         guard age >= 0, age < MarkerTracker.sessionLimit else {
             SavedSession.clear()
+            liveActivity.endAll(finalSnapshot: nil)
             return
         }
 
@@ -506,7 +521,7 @@ public final class MarkerTracker {
     private func resetFixState() {
         latest = nil
         problem = nil
-        systemSaysStationary = false
+        stationarySince = nil
         lastSpeed = nil
         shown = Shown.waiting
         shownAt = Date.distantPast
@@ -543,7 +558,14 @@ public final class MarkerTracker {
     /// One update from Core Location: either a position or a reason there is none.
     private func handle(_ update: CLLocationUpdate, token: Int) async {
         guard isActive, token == sessionToken else { return }
-        systemSaysStationary = update.stationary
+        // Only the moment the pause begins is kept. An update that repeats
+        // "stationary" must not move it: what matters afterwards is how old
+        // the position on screen was when the pause began.
+        if !update.stationary {
+            stationarySince = nil
+        } else if stationarySince == nil {
+            stationarySince = Date()
+        }
 
         // Problems first. With any of these there is no position worth looking up.
         if update.authorizationDeniedGlobally {
@@ -611,8 +633,12 @@ public final class MarkerTracker {
 
         let now = Date()
         // The first position after a start can be one iOS had kept from
-        // earlier. If it is already too old it must not look current.
-        if !systemSaysStationary && StaleRule.isStale(fixAge: now.timeIntervalSince(fixTime), lastSpeed: speed) {
+        // earlier, and iOS can hand over the same position a second time.
+        // Either way it is judged by its age: if it is already too old it must
+        // not look current. The one exception is a position that iOS's pause
+        // accounts for.
+        if !pauseExplainsSilence(fixTime: fixTime, speed: speed),
+           StaleRule.isStale(fixAge: now.timeIntervalSince(fixTime), lastSpeed: speed) {
             snapshot.stale = true
         }
         problem = nil
@@ -634,6 +660,19 @@ public final class MarkerTracker {
             latest = snapshot
         }
         flush(now: Date())
+    }
+
+    /// True when iOS having paused its updates accounts for there being no
+    /// position newer than this one, so that the post from it may go on being
+    /// shown as current.
+    ///
+    /// Being paused is not enough by itself. The position must have been taken
+    /// where the vehicle came to rest: not at speed, and not long before the
+    /// pause began. Otherwise GPS lost at 70 mph, followed by a stop under
+    /// cover, would leave a post from somewhere else on screen as if it were
+    /// current. The rule itself is `StaleRule.pauseExplainsSilence`.
+    private func pauseExplainsSilence(fixTime: Date, speed: Double?) -> Bool {
+        return StaleRule.pauseExplainsSilence(pauseBegan: stationarySince, fixTime: fixTime, lastSpeed: speed)
     }
 
     // MARK: - Showing
@@ -663,9 +702,12 @@ public final class MarkerTracker {
     /// time every 30 seconds.
     private func flush(now: Date) {
         guard isActive else { return }
-        let candidate = Shown(snapshot: latest, problem: problemText, stationary: systemSaysStationary)
+        // Judged for the post on screen, not taken from iOS's word alone: a
+        // pause only counts when it accounts for that post not being refreshed.
+        let paused = latest.map { pauseExplainsSilence(fixTime: $0.fixTime, speed: lastSpeed) } ?? false
+        let candidate = Shown(snapshot: latest, problem: problemText, stationary: paused)
         let postChanged = MarkerTracker.differ(candidate.snapshot, shown.snapshot)
-        // A change between moving and stationary shows nothing new, but the
+        // A change between moving and paused shows nothing new, but the
         // Live Activity needs it at once: it decides whether the system may
         // mark the activity as out of date by itself.
         let changed = postChanged || candidate.problem != shown.problem || candidate.stationary != shown.stationary
@@ -746,10 +788,12 @@ public final class MarkerTracker {
         }
 
         // Stale: no fix for 15 s while moving, 30 s when the speed is unknown,
-        // 120 s when stopped or crawling. Not while iOS itself has paused the
-        // updates because the phone is not moving: then silence is expected,
-        // the position is still right, and the display shows the fix time.
-        if var snapshot = latest, !snapshot.stale, !systemSaysStationary,
+        // 120 s when stopped or crawling. The one exception is a position
+        // that iOS's pause accounts for (the phone stopped moving where it
+        // was taken, and iOS said so): then silence is expected, the position
+        // is still right, and the display shows the fix time.
+        if var snapshot = latest, !snapshot.stale,
+           !pauseExplainsSilence(fixTime: snapshot.fixTime, speed: lastSpeed),
            StaleRule.isStale(fixAge: now.timeIntervalSince(snapshot.fixTime), lastSpeed: lastSpeed) {
             snapshot.stale = true
             latest = snapshot

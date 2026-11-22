@@ -278,4 +278,27 @@ public enum StaleRule {
     public static func isStale(fixAge: TimeInterval, lastSpeed: Double?) -> Bool {
         return fixAge > limit(lastSpeed: lastSpeed)
     }
+
+    /// True when the system having paused its position updates accounts for a
+    /// fix having no successor, so that the fix may go on being shown as current.
+    ///
+    /// iOS stops sending positions once it judges that the phone is no longer
+    /// moving. Silence is then expected, and the last position is still right,
+    /// but only if it was taken where the vehicle came to rest. So:
+    ///  - a fix taken at speed is never excused: the vehicle has moved on from it;
+    ///  - nor is a fix that was already older than `movingLimit` when the pause
+    ///    began: positions had stopped arriving before the pause, and the pause
+    ///    does not explain that.
+    /// A fix that is not excused follows `isStale` as usual.
+    ///
+    /// - Parameters:
+    ///   - pauseBegan: when the system said it was pausing its updates, or nil
+    ///     if it has not paused them.
+    ///   - fixTime: the time of the fix in question.
+    ///   - lastSpeed: the speed of that fix in metres per second, or nil when it had none.
+    public static func pauseExplainsSilence(pauseBegan: Date?, fixTime: Date, lastSpeed: Double?) -> Bool {
+        guard let began = pauseBegan else { return false }
+        if let speed = lastSpeed, speed > Geo.headingMinSpeed { return false }
+        return began.timeIntervalSince(fixTime) <= movingLimit
+    }
 }

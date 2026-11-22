@@ -122,7 +122,9 @@ object PostLookup {
         val dLng = toRad(lng2 - lng1)
         val s1 = StrictMath.sin(dLat / 2.0)
         val s2 = StrictMath.sin(dLng / 2.0)
-        val a = s1 * s1 + StrictMath.cos(toRad(lat1)) * StrictMath.cos(toRad(lat2)) * s2 * s2
+        // Built in the web app's order: the two squares first, then the product.
+        // (Left to right, cos * cos * s2 * s2 differs from it in the last bit.)
+        val a = (s1 * s1) + (StrictMath.cos(toRad(lat1)) * StrictMath.cos(toRad(lat2))) * (s2 * s2)
         return 2.0 * EARTH_RADIUS_M * StrictMath.asin(StrictMath.sqrt(a))
     }
 

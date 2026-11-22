@@ -12,7 +12,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         // If iOS closed the app during live tracking and has started it again
         // (possibly in the background), carry on at once: the background
-        // location session can only be rejoined at launch.
+        // location session can only be rejoined at launch. If there is no
+        // session to carry on, this removes any Live Activity an earlier one
+        // left behind, so the Lock Screen never keeps a post nothing updates.
         MarkerTracker.shared.resumeAfterLaunch()
         return true
     }

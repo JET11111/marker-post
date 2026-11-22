@@ -161,7 +161,8 @@ final class LiveActivityController {
     /// finished in the background, so stopping never waits on the system.
     func endAll(finalSnapshot: PostSnapshot?) {
         epoch += 1
-        let ending = showingFirst(PostActivity.activities)
+        // Worked out before the two references are let go: see `withHeld`.
+        let ending = showingFirst(withHeld(PostActivity.activities))
         current = nil
         successor = nil
         screen = Screen.waiting
@@ -184,7 +185,9 @@ final class LiveActivityController {
     /// Ask for a fresh activity, end the ones it replaces, and where the
     /// system allows (iOS 26 and later) schedule the one that follows it.
     private func requestChain(now: Date, epoch mine: Int) async -> Bool {
-        let before = PostActivity.activities
+        // Everything the new chain replaces, including a follow-on that is
+        // only held here (see `withHeld`).
+        let before = withHeld(PostActivity.activities)
         let known = before.filter { !isOver($0) }.map { $0.attributes.generation }.max() ?? 0
         // Each new activity gets a higher number, which is also its relevance
         // score: with equal scores iOS keeps showing the OLDER activity.
@@ -195,11 +198,17 @@ final class LiveActivityController {
             fresh = try request(generation: generation, startedAt: now)
         } catch {
             // The request is tried first, so that a refusal leaves the old
-            // display alone. One refusal is worth a second try: asked through
-            // Siri, iOS is reported to refuse a new activity while another
-            // from the same app is showing, and the limit on the number of
-            // activities can be reached too. Both go away once the old ones end.
-            guard !before.isEmpty else { return false }
+            // display alone. Nothing is ended for a second try unless the
+            // refusal is one that ending is sure to cure: there are already
+            // as many Live Activities as iOS allows.
+            //
+            // Every other refusal keeps what is on screen. The usual one is
+            // that the app is not on screen, and that would only be given
+            // again. Siri is reported to give the same answer while another
+            // activity from the app is showing; ending the display on the
+            // chance that this is why would leave nothing on screen if it
+            // was not, and nothing to carry the 7 h 30 min warning.
+            guard LiveActivityController.endingOthersCures(error), !before.isEmpty else { return false }
             // Forgotten before they are ended, so that the regular check does
             // not mistake this for the user swiping the activity away.
             current = nil
@@ -278,10 +287,41 @@ final class LiveActivityController {
         }
     }
 
+    /// True for the two refusals that go away once this app's older
+    /// activities have ended: the app, or the phone as a whole, already has
+    /// as many Live Activities as iOS allows.
+    private static func endingOthersCures(_ error: Error) -> Bool {
+        guard let reason = error as? ActivityAuthorizationError else { return false }
+        switch reason {
+        case .targetMaximumExceeded, .globalMaximumExceeded:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func end(_ activities: [PostActivity]) async {
         for activity in showingFirst(activities) {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
+    }
+
+    /// The activities the system lists, together with the two held here if
+    /// the list leaves either out.
+    ///
+    /// Apple does not say whether an activity that is scheduled but has not
+    /// started yet is listed. If it is not, the reference kept in `successor`
+    /// is the only way to cancel it: dropped without being ended, a stopped
+    /// session's follow-on would still start hours later with its alert, and
+    /// each renewal would leave another one waiting.
+    private func withHeld(_ listed: [PostActivity]) -> [PostActivity] {
+        var all = listed
+        for held in [current, successor] {
+            if let held = held, !all.contains(where: { $0.id == held.id }) {
+                all.append(held)
+            }
+        }
+        return all
     }
 
     /// The activities that are on screen first, then the rest. The visible
@@ -301,6 +341,10 @@ final class LiveActivityController {
 
     /// Show this on the Live Activity. Updates are sent one at a time and in
     /// order; if the system is slow, only the newest one waiting is sent.
+    ///
+    /// `stationary` is the tracker's judgement, not iOS's word alone: true only
+    /// when iOS has paused its updates and that accounts for this post not
+    /// being refreshed. It switches off the stale date (see `content`).
     func show(snapshot: PostSnapshot?, problem: String?, stationary: Bool) {
         screen = Screen(snapshot: snapshot, problem: problem, stationary: stationary)
         send(screen)
@@ -357,9 +401,11 @@ final class LiveActivityController {
 
         // The stale date is the system's own backstop. If the app is closed or
         // loses GPS while the vehicle is moving, iOS marks the activity out of
-        // date by itself once this time passes. When iOS has paused updates
-        // because the phone is not moving there is no date: silence is then
-        // expected, and the display would otherwise go out of date while parked.
+        // date by itself once this time passes. A post that is current goes
+        // without a date in one case only: the tracker says that iOS's pause
+        // accounts for the silence (the vehicle is standing where this post
+        // was found). Silence is then expected, and the display would
+        // otherwise go out of date while parked.
         var staleDate: Date?
         if let snapshot = screen.snapshot, !snapshot.stale, screen.problem == nil, !screen.stationary {
             staleDate = now.addingTimeInterval(LiveActivityController.staleAfter)
