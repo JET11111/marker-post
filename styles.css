@@ -422,6 +422,24 @@ dialog.sheet::backdrop { background: var(--backdrop); animation: fade-in 0.2s li
 .sheet-body p { font-size: 15px; line-height: 21px; color: var(--text-2); }
 .sheet-body h3 { font-size: 17px; line-height: 22px; font-weight: 700; margin-top: 4px; }
 .section-label { padding: 4px 4px 0; font-size: 13px; line-height: 18px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }
+/* A plain disclosure: a row that opens to show more. Used for the software licences. */
+.disclosure { border-radius: var(--r-row); background: var(--fill); }
+.disclosure > summary, .disclosure-item > summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: var(--tap); padding: 0 16px; cursor: pointer; list-style: none;
+  font-size: 16px; font-weight: 600;
+}
+.disclosure summary::-webkit-details-marker { display: none; }
+.disclosure summary::after { content: '+'; font-size: 22px; font-weight: 400; color: var(--text-2); }
+.disclosure details[open] > summary::after, .disclosure[open] > summary::after { content: '–'; }
+.disclosure > p { padding: 0 16px 8px; }
+.disclosure-item { border-top: 1px solid var(--sep); }
+.disclosure-item > summary { font-size: 15px; font-weight: 500; }
+.licence-text {
+  margin: 0; padding: 0 16px 14px; max-height: 45vh; overflow: auto;
+  font-family: var(--font); font-size: 13px; line-height: 18px; color: var(--text-2);
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; -webkit-user-select: text;
+}
 @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 

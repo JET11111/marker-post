@@ -87,6 +87,8 @@ if (target === 'native') {
   if (!existsSync(runtime)) throw new Error('Run "npm install" first: @capacitor/core is not installed.');
   await mkdir(join(OUT, 'vendor', 'capacitor'), { recursive: true });
   await cp(runtime, join(OUT, 'vendor', 'capacitor', 'capacitor.js'));
+  // Its licence travels with it, for the list in Settings and about.
+  await cp(join(ROOT, 'node_modules', '@capacitor', 'core', 'LICENSE'), join(OUT, 'vendor', 'capacitor', 'LICENSE'));
   const indexPath = join(OUT, 'index.html');
   const html = await readFile(indexPath, 'utf8');
   const hook = '<script type="module" src="app.js"></script>';

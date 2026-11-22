@@ -51,16 +51,14 @@ await copy('maplibre-gl/LICENSE.txt', mod('maplibre-gl', 'LICENSE.txt'), `maplib
 // --- PMTiles reader (script build: defines the global "pmtiles").
 const pm = await version('pmtiles');
 await copy('pmtiles/pmtiles.js', mod('pmtiles', 'dist', 'pmtiles.js'), `pmtiles@${pm} dist/pmtiles.js`);
-await copy('pmtiles/LICENSE', mod('pmtiles', 'LICENSE'), `pmtiles@${pm} LICENSE`).catch(async () => {
-  await put('pmtiles/LICENSE', Buffer.from('PMTiles is published under the BSD 3-Clause licence: https://github.com/protomaps/PMTiles/blob/main/LICENSE\n'), 'note');
-});
+// The npm package does not carry the licence text, and the licence requires
+// that it travels with the code, so it is taken from the project's repository.
+await download('pmtiles/LICENSE', 'https://raw.githubusercontent.com/protomaps/PMTiles/main/LICENSE');
 
 // --- Protomaps basemap style generator (ES module, no dependencies).
 const bm = await version('@protomaps/basemaps');
 await copy('protomaps-basemaps/basemaps.js', mod('@protomaps', 'basemaps', 'dist', 'esm', 'index.js'), `@protomaps/basemaps@${bm} dist/esm/index.js`);
-await copy('protomaps-basemaps/LICENSE', mod('@protomaps', 'basemaps', 'LICENSE'), `@protomaps/basemaps@${bm} LICENSE`).catch(async () => {
-  await put('protomaps-basemaps/LICENSE', Buffer.from('@protomaps/basemaps is published under the BSD 3-Clause licence: https://github.com/protomaps/basemaps/blob/main/LICENSE.md\n'), 'note');
-});
+await download('protomaps-basemaps/LICENSE', 'https://raw.githubusercontent.com/protomaps/basemaps/main/LICENSE.md');
 
 // --- Map fonts (glyph ranges) and icon sheets from protomaps/basemaps-assets.
 // Only the ranges UK labels use are kept: Latin, Latin Extended and general
@@ -81,11 +79,16 @@ for (const flavor of ['light', 'dark']) {
     await download(`basemaps-assets/sprites/v4/${flavor}${suffix}`, `${ASSETS}/sprites/v4/${flavor}${suffix}`);
   }
 }
+// Their licences, as that repository states them: the fonts under the SIL Open
+// Font License (text alongside the fonts), the icons derived from an
+// MIT-licensed set (text fetched from that set's repository).
+await download('basemaps-assets/fonts/OFL.txt', 'https://raw.githubusercontent.com/protomaps/basemaps-assets/main/fonts/OFL.txt');
+await download('basemaps-assets/sprites/LICENSE.md', 'https://raw.githubusercontent.com/tangrams/icons/master/LICENSE.md');
 await put('basemaps-assets/LICENSE.md', Buffer.from(
   '# Map fonts and icons\n\n' +
   'From https://github.com/protomaps/basemaps-assets\n\n' +
-  '- Fonts: Noto Sans (Regular, Medium, Italic), SIL Open Font License 1.1, https://openfontlicense.org\n' +
-  '- Icon sheets: Protomaps basemap sprites v4, derived from MIT-licensed icon sets; see the repository for details.\n'), 'note');
+  '- Fonts: Noto Sans (Regular, Medium, Italic), as glyph ranges. SIL Open Font License 1.1: see fonts/OFL.txt in this folder.\n' +
+  '- Icon sheets: Protomaps basemap sprites v4, derived from the MIT-licensed tangrams/icons set: see sprites/LICENSE.md in this folder.\n'), 'note');
 
 const total = records.reduce((a, r) => a + r.bytes, 0);
 const table = records.map((r) => `| \`${r.path}\` | ${r.bytes.toLocaleString('en-GB')} | \`${r.sha256}\` | ${r.source} |`).join('\n');

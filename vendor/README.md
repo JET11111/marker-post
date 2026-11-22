@@ -19,7 +19,7 @@ The base-map tiles themselves are not kept here or anywhere in the
 repository. `scripts/fetch-basemap.mjs` cuts them from a Protomaps build of
 OpenStreetMap data (© OpenStreetMap contributors, ODbL).
 
-## Files (29, 2.97 MB)
+## Files (31, 2.98 MB)
 
 | File | Bytes | SHA-256 | Source |
 | --- | ---: | --- | --- |
@@ -28,9 +28,9 @@ OpenStreetMap data (© OpenStreetMap contributors, ODbL).
 | `maplibre-gl/maplibre-gl.css` | 71,596 | `a90798a1953017790e590f7e1bd35ff103a8a4263972cb47290b78adf86f8c20` | maplibre-gl@6.19.0 dist/maplibre-gl.css |
 | `maplibre-gl/LICENSE.txt` | 5,984 | `ee5fc05a0677eaf69601d2c7db0d9ecd6cc27c3abc1d0733bc9ed34707cf8ef2` | maplibre-gl@6.19.0 LICENSE.txt |
 | `pmtiles/pmtiles.js` | 20,229 | `caf981bc46f6327ee7e65d5dc964d89d38a69f60edca2bd4c5c890c21b554c6c` | pmtiles@4.5.0 dist/pmtiles.js |
-| `pmtiles/LICENSE` | 108 | `2eb80839ea623734f1e57ebfde3ddc8a762664c12f4bd14c204cae0a261b9d5b` | note |
+| `pmtiles/LICENSE` | 1,713 | `0371c38f338835f7fc13ed71176f3d92144e22c8b736a31cced57adbbeb647b3` | https://raw.githubusercontent.com/protomaps/PMTiles/main/LICENSE |
 | `protomaps-basemaps/basemaps.js` | 38,226 | `9d6ee63bee82fd4af79bedaaab538f904341b35fbc1f6254b86166aa4ee24cf1` | @protomaps/basemaps@5.7.2 dist/esm/index.js |
-| `protomaps-basemaps/LICENSE` | 124 | `37b022c1b7bcef9c2415a8642109aefb93a2df27e34bf7aa2bf0584eafc87295` | note |
+| `protomaps-basemaps/LICENSE` | 3,289 | `74f975cfedd168098c43b5cfd6e587e40604684c4ffcec3e90d24b3b09c061b0` | https://raw.githubusercontent.com/protomaps/basemaps/main/LICENSE.md |
 | `basemaps-assets/fonts/NotoSans-Regular/0-255.pbf` | 76,044 | `62c6d49b15fa836eb6aa45e259c7ca6762f44b011b09e47776efbe4a6db1b397` | https://protomaps.github.io/basemaps-assets/fonts/Noto%20Sans%20Regular/0-255.pbf |
 | `basemaps-assets/fonts/NotoSans-Regular/256-511.pbf` | 127,726 | `2eca7561f9f566bcacfda5dd04fb5880baec1328ec0f5484678289a13994de8a` | https://protomaps.github.io/basemaps-assets/fonts/Noto%20Sans%20Regular/256-511.pbf |
 | `basemaps-assets/fonts/NotoSans-Regular/7680-7935.pbf` | 135,449 | `b9100ec886dff647198802c41d1ca6df9e6f82325179d8d71e3d377b5fe8682e` | https://protomaps.github.io/basemaps-assets/fonts/Noto%20Sans%20Regular/7680-7935.pbf |
@@ -51,4 +51,6 @@ OpenStreetMap data (© OpenStreetMap contributors, ODbL).
 | `basemaps-assets/sprites/v4/dark.png` | 16,054 | `8920f68e8f9f7a4188da43e62a81bbc426532579fff7b5f27aad09e130f4246e` | https://protomaps.github.io/basemaps-assets/sprites/v4/dark.png |
 | `basemaps-assets/sprites/v4/dark@2x.json` | 3,579 | `1fb5b123fbe35d2e1f6ac171513ce01df89e671273a417ee89c44886a4c132f0` | https://protomaps.github.io/basemaps-assets/sprites/v4/dark@2x.json |
 | `basemaps-assets/sprites/v4/dark@2x.png` | 28,407 | `6e01b4e366d304f27bbd55390511a3d4e39aa1d03eb3e82f873f7ea32e74cbe4` | https://protomaps.github.io/basemaps-assets/sprites/v4/dark@2x.png |
-| `basemaps-assets/LICENSE.md` | 289 | `df80d14cde3799ef95bd4b3928d19667e1cb1c082c3b1d5a9ab19f537ceac123` | note |
+| `basemaps-assets/fonts/OFL.txt` | 4,374 | `7713cfc8e3c36d5ec4aa3d6cffe7500a1b3310f8a86d914b8ea09c2a9dee7c2d` | https://raw.githubusercontent.com/protomaps/basemaps-assets/main/fonts/OFL.txt |
+| `basemaps-assets/sprites/LICENSE.md` | 1,074 | `46d0ca73c10d7366ef7bf3932d8508267096393ccc9ef3a41d1b1d1fe37023f1` | https://raw.githubusercontent.com/tangrams/icons/master/LICENSE.md |
+| `basemaps-assets/LICENSE.md` | 332 | `ced2b85c31a186dad1482871f7ece2a780c61d092502a8aa2c5aeed32401d2f0` | note |

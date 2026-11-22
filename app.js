@@ -809,6 +809,39 @@ async function initLive() {
   });
 }
 
+// ---------- open-source software ----------
+// Third-party code in the app and the licence each is used under. The licence
+// files ship with the app (vendor/), so they can be read with no signal.
+const SOFTWARE = [
+  ['MapLibre GL JS (map engine)', 'vendor/maplibre-gl/LICENSE.txt'],
+  ['PMTiles (map file reader)', 'vendor/pmtiles/LICENSE'],
+  ['Protomaps basemaps (map style)', 'vendor/protomaps-basemaps/LICENSE'],
+  ['Noto Sans (lettering on the map)', 'vendor/basemaps-assets/fonts/OFL.txt'],
+  ['Map symbols', 'vendor/basemaps-assets/sprites/LICENSE.md'],
+];
+function initSoftware() {
+  const items = config.target === 'native'
+    ? [...SOFTWARE, ['Capacitor (phone app shell)', 'vendor/capacitor/LICENSE']]
+    : SOFTWARE;
+  el('about-software-list').replaceChildren(...items.map(([name, file]) => {
+    const text = h('pre', { class: 'licence-text', text: 'Loading…' });
+    const item = h('details', { class: 'disclosure-item' }, h('summary', { text: name }), text);
+    item.addEventListener('toggle', async () => {
+      if (!item.open || item.dataset.loaded) return;
+      item.dataset.loaded = '1';
+      try {
+        const res = await fetch(file);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        text.textContent = (await res.text()).trim();
+      } catch {
+        text.textContent = 'The licence text could not be loaded just now.';
+        delete item.dataset.loaded;
+      }
+    });
+    return item;
+  }));
+}
+
 // ---------- online/offline ----------
 function updateOnline() {
   show(el('offline'), !navigator.onLine);
@@ -819,6 +852,7 @@ async function init() {
   initTheme();
   initSheets();
   show(el('tab-vehicle'), config.features.vehicle);
+  initSoftware();
   setText(el('about-version'), `Version ${config.version} · ${config.target === 'native' ? `${P.platform} app` : 'web app'} · build ${config.build}`);
   if (config.map?.basemap?.attribution) {
     const basemap = el('about-basemap');
