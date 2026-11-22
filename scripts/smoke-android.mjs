@@ -2,7 +2,11 @@
 // Run the Android app on an emulator and check that it really works. Used by
 // the "android" workflow inside an emulator on GitHub; it needs adb on the PATH.
 //
-//   node scripts/smoke-android.mjs <path to the debug APK> <folder for the pictures>
+//   node scripts/smoke-android.mjs <path to the debug APK> <folder for the pictures> [path to the release APK]
+//
+// The release APK (the build that would go to a store) is found beside the debug
+// one when it is not named. It cannot be looked inside, so it is only checked
+// for starting and staying up.
 //
 // The emulator's GPS is fed a drive along the M27. The script then looks inside
 // the app (a debug build lets a tool read its web page) and checks that:
@@ -14,8 +18,8 @@
 // What it cannot check: a real phone's GPS, battery behaviour, or the widget
 // (nothing can place a widget on a home screen from the command line).
 
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { connect } from './browser.mjs';
 import { APP_ID, EXPECT, SPEED, check, finish, route, run, sleep, until } from './smoke-lib.mjs';
 
@@ -26,6 +30,11 @@ if (!apk || !outDir) {
 }
 const OUT = resolve(outDir);
 mkdirSync(OUT, { recursive: true });
+const releaseApk = process.argv[4] || (() => {
+  const folder = dirname(resolve(apk));
+  const found = readdirSync(folder).find((f) => f.endsWith('.apk') && !f.includes('-debug'));
+  return found ? join(folder, found) : null;
+})();
 const adb = (...args) => run('adb', args);
 const quiet = (...args) => run('adb', args, { allowFailure: true });
 const shot = (name) => {
@@ -191,6 +200,23 @@ try {
   writeFileSync(join(OUT, 'diagnostics.txt'), `${report}\n`);
   const errors = String(report).split('\n').filter((line) => / ERROR /.test(line));
   check(errors.length === 0, 'the app recorded no errors', errors.slice(0, 3).join(' | '));
+
+  // The release build: same code, built the way a store build is. It replaces
+  // the debug build on the emulator (both are signed with the same key here).
+  if (releaseApk) {
+    try { page.socket.close(); } catch { /* already closed */ }
+    page = null;
+    quiet('logcat', '-b', 'crash', '-c');
+    adb('install', '-r', '-g', releaseApk);
+    adb('shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`);
+    await sleep(20000);
+    check(Boolean(quiet('shell', 'pidof', APP_ID).trim()), 'the release build starts and keeps running');
+    const crashes = quiet('logcat', '-d', '-b', 'crash', '-t', '200');
+    check(!crashes.includes(APP_ID), 'the release build did not crash', crashes.split('\n').filter((l) => /FATAL|Exception/.test(l)).slice(0, 2).join(' | '));
+    shot('8-release-build');
+  } else {
+    console.log('  note: no release APK beside the debug one, so only the debug build was run.');
+  }
 } catch (e) {
   check(false, 'the check ran to the end', e.message);
   try { shot('failure'); } catch { /* no picture possible */ }
