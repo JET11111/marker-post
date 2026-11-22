@@ -36,7 +36,7 @@ const DATA = ['posts.json', 'junctions.json', 'eras.json', 'posts-supplemental.j
 /** Whole folders of static assets (third-party code with licences, map fonts and icons, app icons). */
 const ASSET_DIRS = ['icons', 'vendor'];
 /** Web-app only: install manifest, service worker, and the standalone NTIS viewer that already lives on the site. */
-const PWA_ONLY = ['manifest.json', 'ntis.html', 'ntis.js', 'ntis.css'];
+const PWA_ONLY = ['manifest.json', 'ntis.html', 'ntis.js', 'ntis.css', 'ntis.base.css'];
 /** The offline base map is generated (scripts/fetch-basemap.mjs), never committed. */
 const BASEMAP = 'tiles/basemap.pmtiles';
 

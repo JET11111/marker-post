@@ -204,8 +204,11 @@ function renderNearest() {
   // should know about it. A carriageway chosen by position alone is said so.
   const byPositionOnly = !confirmed && Boolean(parseRef(post.ref));
   setText(el('np-meta'), post.link
-    ? `${post.link} · source survey date unknown`
-    : `updated ${clock(lastFixAt)}${byPositionOnly ? ' · nearest by position only, check the carriageway' : ''}`);
+    ? `${post.link} · source survey date unknown · distances are straight-line`
+    : `updated ${clock(lastFixAt)} · distances are straight-line`);
+  const note = el('np-note');
+  if (byPositionOnly) setText(note, 'Nearest post by position only. Check the carriageway.');
+  show(note, byPositionOnly);
 
   // What the phone's widgets and notification show under the post.
   const context = post.link ? `Link ${post.link}`
@@ -609,7 +612,7 @@ function signCard(s) {
   const bits = [String(s.id)];
   const near = nearestPostRef(s);
   if (near) bits.push(`near ${near}`);
-  if (s.d != null) bits.push(`${fmtDist(s.d)} from you`);
+  if (s.d != null) bits.push(`${fmtDist(s.d)} from you, straight-line`);
   const set = s.setAt && !Number.isNaN(Date.parse(s.setAt))
     ? new Date(s.setAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
     : null;

@@ -221,7 +221,10 @@ export function onAppLink(handler) {
     try {
       const link = new URL(address);
       if (link.protocol !== 'markerpost:') return;
-      handler(`${link.host}${link.pathname}`.replace(/\/+$/, '').toLowerCase());
+      // Web views before Chrome 130 do not split a custom link into host and
+      // path: they give an empty host and "//live/start". Trim both ends so
+      // every version hands over the same "live/start".
+      handler(`${link.host}${link.pathname}`.replace(/^\/+|\/+$/g, '').toLowerCase());
     } catch { /* not a link we understand */ }
   };
   try {

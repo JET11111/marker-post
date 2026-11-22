@@ -62,7 +62,10 @@ function ask(question, { secret = false, fallback = '' } = {}) {
     if (lines.length) done(lines.shift()); else waiting.push(done);
   });
 }
-const yes = async (question) => /^y(es)?$/i.test(await ask(`${question} [y/N] `));
+const yes = async (question, byDefault = false) => {
+  const answer = await ask(`${question} ${byDefault ? '[Y/n]' : '[y/N]'} `);
+  return answer ? /^y(es)?$/i.test(answer) : byDefault;
+};
 
 console.log(`Marker Post: setting up TestFlight uploads${DRY ? ' (dry run: nothing will be changed)' : ''}\n`);
 
@@ -124,12 +127,27 @@ if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(token)) fail('That does not lo
 
 // ------------------------------------------------------ the match password
 
-const matchPassword = randomBytes(24).toString('base64url');
+// The certificate in the signing repository can only be read with the password
+// it was stored with. So a password is made once, and never replaced: running
+// this script again (for a new key or token) must leave it alone.
+const exists = (apiPath) => ok(run('gh', ['api', apiPath, '--silent']));
+const passwordStored = exists(`repos/${repo}/environments/${ENVIRONMENT}/secrets/MATCH_PASSWORD`);
+const certificateStored = exists(`repos/${signingRepo}/contents/certs?ref=main`);
+let matchPassword = null; // null: leave the stored secret as it is
+if (passwordStored) {
+  console.log('\nThe certificate password is already stored on GitHub. It is kept: the certificate can only be read with it.');
+} else if (certificateStored) {
+  matchPassword = await ask('\nThe signing repository already holds a certificate, but its password is not on GitHub.\n  Paste the password you saved as "Marker Post match password" (it will not be shown): ', { secret: true });
+  if (!matchPassword) fail('Without that password the stored certificate cannot be read.');
+} else {
+  matchPassword = randomBytes(24).toString('base64url');
+}
+const newPassword = !passwordStored && !certificateStored;
 
 // ------------------------------------------------------------------ GitHub
 
 console.log(`\nSetting up ${repo}:`);
-const reviewer = await yes(`  Require your approval (${login}) before each upload? Recommended: nothing is signed or sent until you press Approve.`);
+const reviewer = await yes(`  Require your approval (${login}) before each upload? Recommended: nothing is signed or sent until you press Approve.`, true);
 change(`create the "${ENVIRONMENT}" environment${reviewer ? ' with you as required reviewer' : ''}`,
   ['api', '--method', 'PUT', `repos/${repo}/environments/${ENVIRONMENT}`, '--input', '-'],
   JSON.stringify(reviewer ? { reviewers: [{ type: 'User', id: Number(userId) }] } : {}));
@@ -138,7 +156,7 @@ const secrets = {
   ASC_KEY_ID: keyId,
   ASC_ISSUER_ID: issuerId,
   ASC_KEY_P8_BASE64: Buffer.from(keyText, 'utf8').toString('base64'),
-  MATCH_PASSWORD: matchPassword,
+  ...(matchPassword ? { MATCH_PASSWORD: matchPassword } : {}),
   MATCH_GIT_TOKEN: token,
   APPLE_TEAM_ID: teamId,
   APPLE_TEAM_NAME: teamName,
@@ -151,16 +169,19 @@ change('record where the certificates live (variable MATCH_GIT_URL)', ['variable
 rl.close();
 
 const branch = run('git', ['branch', '--show-current']).stdout.trim() || 'master';
-console.log(`
-${DRY ? 'Dry run finished: nothing was changed.' : 'All set.'}
-
-One more thing to keep. The certificate is encrypted with this password, which now exists
+console.log(`\n${DRY ? 'Dry run finished: nothing was changed.' : 'All set.'}`);
+if (newPassword) {
+  console.log(`
+One more thing to keep. The certificate will be encrypted with this password, which now exists
 only in the GitHub secret MATCH_PASSWORD and on the next line. Save it in your password
 manager as "Marker Post match password". You need it again only if the secret is ever lost.
 
-  ${DRY ? '(a new random password would be shown here)' : matchPassword}
-
+  ${DRY ? '(a new random password would be shown here)' : matchPassword}`);
+}
+console.log(`
 Next (docs/ios-testflight.md, step 8): make the certificate and upload the first build.
   gh workflow run ios-testflight.yml --ref ${branch} -f bootstrap_signing=true
-Then open the Actions page of ${repo}, open the run, and press "Review deployments" > "Approve".
+${reviewer
+    ? `Then open the Actions page of ${repo}, open the run, and press "Review deployments" > "Approve and deploy".`
+    : 'Uploads will start without asking you, because you chose not to require approval.'}
 `);
