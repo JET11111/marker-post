@@ -55,11 +55,13 @@ const shot = (name) => {
 const link = (path) => simctl('openurl', udid, `markerpost://${path}`);
 const running = (pid) => run('ps', ['-p', String(pid)], { allowFailure: true }).includes(String(pid));
 
-simctl('boot', udid);
-simctl('bootstatus', udid, '-b');
+// A simulator's first start on a fresh build machine can take several minutes
+// (it prepares the whole system), so this waits far longer than other steps.
+const SLOW = { timeout: 15 * 60 * 1000 };
+run('xcrun', ['simctl', 'bootstatus', udid, '-b'], SLOW); // -b starts it if needed, then waits until it is ready
 try {
   simctl('ui', udid, 'appearance', 'dark');
-  simctl('install', udid, appPath);
+  run('xcrun', ['simctl', 'install', udid, appPath], SLOW);
   // The same answer a person would give to the location question.
   simctl('privacy', udid, 'grant', 'location', APP_ID);
   // A drive along the M27, with the traffic, at about 70 mph. If this Xcode
