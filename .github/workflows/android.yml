@@ -1,8 +1,8 @@
 # Builds the Android app: lookup tests, a debug APK to sideload and a release APK.
 #
-# Works with no secrets at all. With the four MP_* signing secrets (see
-# docs/android-app.md) both APKs are signed with your own key, so each new
-# build installs over the last one.
+# Works with no secrets at all: the APKs are then signed with a key made for
+# that run only. With the four MP_* signing secrets (docs/android-app.md) they
+# are signed with your own key, so each new build installs over the last one.
 name: android
 
 on:
@@ -88,7 +88,7 @@ jobs:
           chmod +x gradlew
           ./gradlew :marker-post-native:testDebugUnitTest --console=plain
 
-      - name: Signing key (only when the repository has one)
+      - name: Signing key (yours if the repository has one, otherwise one made for this run)
         id: keystore
         env:
           MP_KEYSTORE_BASE64: ${{ secrets.MP_KEYSTORE_BASE64 }}
@@ -98,8 +98,11 @@ jobs:
             echo "path=$RUNNER_TEMP/markerpost.keystore" >> "$GITHUB_OUTPUT"
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
+            # The same script, and so the same kind of key, that you would run
+            # yourself: this proves on every build that such a key signs the app.
+            node scripts/setup-android-signing.mjs --throwaway
             echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No signing key in the repository secrets. The debug APK is signed with a throwaway key (uninstall the app before installing a newer build) and the release APK is unsigned. See docs/android-app.md."
+            echo "::notice::No signing key in the repository secrets, so both APKs are signed with a key made for this run only. Uninstall the app before installing a newer build, or set up your own key once: docs/android-app.md."
           fi
 
       - name: Build the debug and release APKs

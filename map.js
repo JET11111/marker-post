@@ -26,7 +26,7 @@ const midpoint = (coords) => coords?.[Math.floor(coords.length / 2)];
 const megabytes = (bytes) => `${Math.round(bytes / 1048576)} MB`;
 
 // MapLibre zoom levels (one lower than the old raster map's for the same view).
-const ZOOM = { start: 9, min: 6.5, max: 18, posts: 11, junctions: 10, shieldsBelow: 12, select: 14, locate: 14, roadFocus: 13 };
+const ZOOM = { start: 9, min: 6.5, max: 18, posts: 11, junctions: 10, select: 14, locate: 14, roadFocus: 13 };
 const PATCH_BOUNDS = [[-1.95, 50.72], [-0.73, 51.4]];
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const LAYERS_KEY = 'mp-map-layers';
@@ -369,11 +369,20 @@ class NetworkMap {
         'line-width': byZoom([[6, 1.2, 0.8], [10, 2.6, 1.6], [13, 3.8, 2.4], [16, 8, 5.5], [18, 19, 12]]),
       } }, firstLabel);
 
-    // Road-number shields from the network itself, for the overview zooms.
-    layer({ id: 'mp-shields', type: 'symbol', source: 'mp-network', maxzoom: ZOOM.shieldsBelow,
-      filter: ['!=', ['get', 'label'], ''],
+    layer({ id: 'mp-posts', type: 'circle', source: 'mp-posts', minzoom: ZOOM.posts,
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], ZOOM.posts, 2.2, 14, 3.6, 17, 6],
+        'circle-color': c.post, 'circle-stroke-color': c.postStroke, 'circle-stroke-width': 1.2,
+      } });
+
+    // Road-number shields from the network itself, in road-sign colours, at
+    // every zoom. They sit above the marker dots so a dot never hides a road
+    // number, and only on the main carriageways (not every slip road).
+    layer({ id: 'mp-shields', type: 'symbol', source: 'mp-network',
+      filter: ['all', ['!=', ['get', 'label'], ''], ['!', ['get', 'slip']]],
       layout: {
-        'symbol-placement': 'line', 'symbol-spacing': 320,
+        'symbol-placement': 'line',
+        'symbol-spacing': ['interpolate', ['linear'], ['zoom'], 8, 320, 13, 420, 16, 640],
         'text-field': ['get', 'label'], 'text-font': FONT.medium, 'text-size': 11,
         'text-rotation-alignment': 'viewport', 'text-pitch-alignment': 'viewport',
         'icon-image': ['match', ['get', 'cls'], 'M', 'mp-shield-m', 'mp-shield-a'],
@@ -381,12 +390,6 @@ class NetworkMap {
         'icon-rotation-alignment': 'viewport', 'icon-pitch-alignment': 'viewport',
       },
       paint: { 'text-color': ['match', ['get', 'cls'], 'M', '#FFFFFF', c.shieldARoadText] } });
-
-    layer({ id: 'mp-posts', type: 'circle', source: 'mp-posts', minzoom: ZOOM.posts,
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], ZOOM.posts, 2.2, 14, 3.6, 17, 6],
-        'circle-color': c.post, 'circle-stroke-color': c.postStroke, 'circle-stroke-width': 1.2,
-      } });
     layer({ id: 'mp-junctions', type: 'symbol', source: 'mp-junctions', minzoom: ZOOM.junctions,
       layout: {
         'text-field': ['get', 'jct'], 'text-font': FONT.medium, 'text-size': 11,

@@ -7,10 +7,11 @@ def packageJson = new groovy.json.JsonSlurper().parse(file('../../package.json')
 def buildNumber = (System.getenv('MP_VERSION_CODE') ?: '1') as Integer
 
 // Signing. The keystore and its passwords are never in the repository: on your
-// own computer they come from android/keystore.properties (git-ignored), on CI
-// from environment variables filled from GitHub secrets. Without them the
-// debug build is signed with the machine's throwaway debug key and the release
-// build is left unsigned. See docs/android-app.md.
+// own computer they come from android/keystore.properties (git-ignored), on
+// GitHub from environment variables filled from secrets (or, when there are
+// none, from a key made for that one run). Without any of them the debug build
+// is signed with the machine's own debug key and the release build is left
+// unsigned. See docs/android-app.md.
 def keystoreProps = new Properties()
 def keystorePropsFile = rootProject.file('keystore.properties')
 if (keystorePropsFile.exists()) {

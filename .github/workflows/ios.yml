@@ -147,6 +147,25 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
             2>&1 | tee "$RUNNER_TEMP/xcodebuild-device.log" | xcbeautify --renderer github-actions
 
+      # The TestFlight job installs fastlane from ios/App/Gemfile.lock, so that it
+      # always runs exactly the same code. There is no Ruby on the development
+      # computer to write that file, so it is written here the first time and
+      # offered as a download, to be committed.
+      - name: Write ios/App/Gemfile.lock while the repository has none
+        id: gemlock
+        if: matrix.pick == '26' && hashFiles('ios/App/Gemfile.lock') == ''
+        working-directory: ios/App
+        run: |
+          ruby --version && bundle --version
+          bundle lock --add-platform ruby
+          echo "made=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.gemlock.outputs.made == 'true'
+        with:
+          name: gemfile-lock
+          path: ios/App/Gemfile.lock
+          retention-days: 7
+
       - name: Keep the build logs when something failed
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

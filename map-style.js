@@ -101,13 +101,23 @@ function baseLayers(dark, source) {
   let json = JSON.stringify(generated);
   for (const [name, folder] of Object.entries(FONT_FOLDERS)) json = json.replaceAll(`"${name}"`, `"${folder}"`);
   const layers = JSON.parse(json);
-  // Road numbers. In these tiles UK roads carry a `ref` but not the
-  // `shield_text` the stock style draws, so read `ref` directly. From zoom 12
-  // up; below that the network's own shields (map.js) label the main roads.
+  // Motorways are labelled by the network itself, with road-sign shields drawn
+  // above the marker dots (map.js). The base map's own numbers and names for
+  // them would sit underneath the dots and only add clutter, so leave them out.
+  // A motorway is recognised by its number: "M3", "M27", "M271".
+  const major = ['in', ['get', 'kind'], ['literal', ['highway', 'major_road']]];
+  const notMotorway = ['!=', ['slice', ['coalesce', ['get', 'ref'], ['get', 'shield_text'], ''], 0, 1], 'M'];
+  for (const layer of layers) {
+    if (layer.id === 'roads_labels_major') layer.filter = ['all', major, notMotorway];
+    if (layer.id === 'roads_shields') {
+      layer.filter = ['all', major, notMotorway, ['has', 'shield_text'], ['<=', ['length', ['get', 'shield_text']], 5]];
+    }
+  }
+  // Road numbers for the other roads. Most UK roads in these tiles carry a
+  // `ref` but not the `shield_text` the stock style draws, so read `ref` too.
   layers.push({
     id: 'roads_ref', type: 'symbol', source, 'source-layer': 'roads', minzoom: 12,
-    filter: ['all',
-      ['in', ['get', 'kind'], ['literal', ['highway', 'major_road']]],
+    filter: ['all', major, notMotorway,
       ['has', 'ref'], ['!', ['has', 'shield_text']],
       ['<=', ['length', ['get', 'ref']], 5]],
     layout: {

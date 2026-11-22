@@ -1,4 +1,27 @@
-# Map verification — 24 September 2026
+# Verification
+
+## 22 November 2026: redesign, vector map, phone apps
+
+What was checked, and how:
+
+- **55 of 55 Node tests pass.** They include the nearest-post logic compared against a frozen copy of the previous implementation over 4,000 generated positions, and the existing map and routing tests.
+- **The official snapshot validator passes** (`node scripts/fetch-network.mjs --validate`).
+- **`node scripts/check.mjs` passes**: every script parses, every import resolves, and both the web and the phone builds are produced.
+- **Headless Chrome, 390×844 in light and dark and 844×390 landscape**, with a simulated position: Nearest (including the unconfirmed-carriageway, stale and no-GPS states), Signs, Go to, Settings and about, and the Map (overview, search, selecting a marker and a road, the layer and data sheets, the Winchester and Chilworth areas, and an area away from the network). No JavaScript errors.
+- **Offline**: after one visit the local server was stopped completely and the app reloaded. Nearest, Go to and the Map worked from the saved copy; Signs said it was showing a saved copy, with its age.
+- **The street map file** was read back with the official PMTiles reader: 2,355 tiles, 41.1 MB.
+- **Colour contrast**: every text and background pair in both themes is at least 4.5 to 1 (computed).
+- **Swift and Kotlin lookup**: checked on GitHub against about two thousand positions whose answers are produced by the web app's own code, including near-ties. See the `ios` and `android` workflows.
+
+What was not checked, and so is unknown until it is tried on a device:
+
+- Anything on a real phone: real GPS, Safari on an iPhone, the installed web app, battery use.
+- The phone apps running. Their code compiles and the lookup is tested on GitHub, but the Live Activity, CarPlay, widgets, the Android notification and background tracking have only been reviewed, never seen. [testing-on-device.md](testing-on-device.md) is the list to work through.
+- The map engine in WebKit. All browser checks used Chrome. The engine needs iOS 16.4 or later.
+
+Screenshots from this check are in `docs/images/app/` and can be retaken with `npm run screenshots`.
+
+## 24 September 2026: mobile map (the previous map, kept as a record)
 
 - 29/29 Node routing tests passed, including one-way travel, partial links, opposite carriageways, NT/MT turn restrictions, exact-node starts, no U-turns, no disconnected jumps and no lay-by through shortcuts.
 - Official snapshot validator passed (complete geometry, dates, joins and routing eligibility).
