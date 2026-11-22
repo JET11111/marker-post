@@ -3,162 +3,228 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a0f1a" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="theme-color" id="theme-color-light" media="(prefers-color-scheme: light)" content="#F2F2F7" />
+  <meta name="theme-color" id="theme-color-dark" media="(prefers-color-scheme: dark)" content="#000000" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="format-detection" content="telephone=no" />
   <title>Marker Post</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <!-- Paint the right background before any stylesheet arrives: no white flash at night. -->
+  <style>
+    html { background: #F2F2F7; }
+    @media (prefers-color-scheme: dark) { html:not([data-theme="light"]) { background: #000000; } }
+    html[data-theme="dark"] { background: #000000; }
+  </style>
+  <script>
+    // Apply the appearance choice before first paint: ?theme=light|dark for
+    // this visit only (previews), otherwise the saved choice, otherwise the system.
+    try {
+      var t = new URLSearchParams(location.search).get("theme") || localStorage.getItem("mp-theme");
+      if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+    } catch (e) { /* storage unavailable: follow the system */ }
+  </script>
   <link rel="stylesheet" href="styles.css" />
-  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
   <link rel="stylesheet" href="map.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-mark"></span>
-      <span class="brand-text">Marker Post<small>Hampshire</small></span>
-    </div>
-    <div class="gps">
-      <span id="gps-dot" class="dot"></span>
-      <span id="status" class="status">Starting</span>
-      <span id="acc" class="acc"></span>
-      <span id="offline" class="pill-offline hidden">OFFLINE</span>
-    </div>
-  </header>
-
-  <main>
-    <!-- NEAREST VIEW -->
-    <section id="view-nearest" class="view">
-      <div class="hero">
-        <div class="eyebrow">Nearest marker post</div>
-        <div id="np-ref" class="post-ref">—</div>
-        <div class="road-line">
-          <span id="np-road" class="road-no">—</span>
+  <main id="app">
+    <!-- NEAREST MARKER POST -->
+    <section id="view-nearest" class="view view-nearest" aria-label="Nearest marker post">
+      <header class="screen-head">
+        <h1 class="screen-label">Nearest marker post</h1>
+        <div class="head-actions">
+          <span id="offline" class="pill pill-bad hidden">Offline</span>
+          <span id="gps-pill" class="pill" role="status" aria-live="polite"><i id="gps-dot" class="dot"></i><span id="gps-text">Starting</span></span>
+          <button id="open-about" class="icon-btn" type="button" aria-label="Settings and about">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7v.5"/></svg>
+          </button>
         </div>
+      </header>
+
+      <div id="hero" class="hero" data-state="waiting">
+        <span id="np-road" class="road-badge"></span>
+        <div id="np-post" class="hero-post" aria-live="off">
+          <span id="np-km" class="post-km">—</span>
+          <span id="np-chip" class="cway-chip none"><span id="np-letter"></span></span>
+        </div>
+        <div id="np-section" class="hero-section"></div>
+        <div id="np-sub" class="hero-sub">Waiting for GPS…</div>
+        <div id="np-note" class="hero-sub warn hidden"></div>
+        <div id="np-alert" class="callout callout-compact hidden" role="status"></div>
       </div>
 
-      <div class="info">
-        <div class="info-row">
-          <span class="info-lbl">Distance to post</span>
-          <span class="info-val" id="np-dist">—</span>
+      <div class="group">
+        <div id="np-jct-row" class="row hidden">
+          <span class="row-label">Nearest junction</span>
+          <span class="row-value"><b id="np-jct">—</b><span class="row-sub" id="np-jct-dist"></span></span>
         </div>
-        <div id="np-jct-row" class="info-row hidden">
-          <span class="info-lbl">Nearest junction</span>
-          <span class="info-val"><span id="np-jct">—</span> <span class="info-sub" id="np-jct-dist"></span></span>
+        <div id="np-era-row" class="row hidden">
+          <span class="row-label">ERA reference · unverified</span>
+          <span class="row-value"><b id="np-era">—</b><span class="row-sub" id="np-era-dist"></span></span>
         </div>
-        <div id="np-era-row" class="info-row hidden">
-          <span class="info-lbl">ERA reference · unverified</span>
-          <span class="info-val"><span id="np-era">—</span> <span class="info-sub" id="np-era-dist"></span></span>
-        </div>
+        <label class="row row-switch">
+          <span class="row-title">Prefer my direction of travel</span>
+          <input type="checkbox" id="heading-toggle" checked />
+          <span class="switch" aria-hidden="true"></span>
+        </label>
       </div>
 
-      <div id="np-meta" class="meta">Waiting for GPS…</div>
-      <button id="np-map" class="btn-mini" type="button">Explore on the network map ↗</button>
-
-      <label class="switch">
-        <span>Prefer my direction of travel</span>
-        <input type="checkbox" id="heading-toggle" checked />
-        <span class="track"><span class="thumb"></span></span>
-      </label>
+      <div class="actions">
+        <button id="live-toggle" class="btn btn-primary hidden" type="button" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/><path d="M6.3 6.3a8 8 0 0 0 0 11.4M17.7 6.3a8 8 0 0 1 0 11.4"/></svg>
+          <span id="live-label">Start live tracking</span>
+        </button>
+        <p id="live-note" class="note hidden"></p>
+        <button id="np-map" class="btn btn-secondary" type="button">Show on map</button>
+      </div>
+      <p id="np-meta" class="meta"></p>
     </section>
 
-    <!-- VMS SIGNS VIEW -->
-    <section id="view-signs" class="view hidden">
-      <div class="signs-head card">
-        <div class="signs-title">
-          <div class="eyebrow">VMS signs</div>
-          <div id="s-meta" class="signs-meta">Loading…</div>
-        </div>
-        <button id="s-refresh" class="btn-mini" type="button">↻ Refresh</button>
-      </div>
-      <div id="s-filters" class="chips hidden"></div>
-      <div id="s-stale" class="stale hidden"></div>
+    <!-- VMS SIGNS -->
+    <section id="view-signs" class="view hidden" aria-label="VMS signs">
+      <header class="screen-head">
+        <h1 class="screen-title">Signs</h1>
+        <button id="s-refresh" class="icon-btn" type="button" aria-label="Refresh signs">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 4v5h-5"/></svg>
+        </button>
+      </header>
+      <div id="s-meta" class="signs-meta" role="status">Loading…</div>
+      <div id="s-filters" class="chips hidden" role="group" aria-label="Filter signs by road"></div>
+      <div id="s-stale" class="callout hidden" role="status"></div>
       <div id="s-list" class="signs-list"></div>
     </section>
 
-    <!-- VEHICLE LOOKUP VIEW -->
-    <section id="view-vehicle" class="view hidden">
+    <!-- VEHICLE LOOKUP (only shown when the build enables it) -->
+    <section id="view-vehicle" class="view hidden" aria-label="Vehicle lookup">
+      <header class="screen-head"><h1 class="screen-title">Vehicle</h1></header>
       <div class="card">
         <label class="fld">
           <span class="fld-lbl">Registration</span>
           <input id="v-reg" class="plate-input" type="text" autocomplete="off"
-                 autocapitalize="characters" spellcheck="false" maxlength="9"
-                 enterkeyhint="search" />
+                 autocapitalize="characters" spellcheck="false" maxlength="9" enterkeyhint="search" />
         </label>
-        <button id="v-find" class="btn btn-primary">Look up</button>
+        <button id="v-find" class="btn btn-primary" type="button">Look up</button>
       </div>
       <div id="v-result"></div>
     </section>
 
-    <!-- GO TO POST VIEW -->
-    <section id="view-goto" class="view hidden">
+    <!-- GO TO POST -->
+    <section id="view-goto" class="view hidden" aria-label="Go to post">
+      <header class="screen-head"><h1 class="screen-title">Go to post</h1></header>
       <div class="card">
         <label class="fld">
           <span class="fld-lbl">Quick entry</span>
-          <input id="g-quick" type="text" inputmode="text" autocomplete="off"
-                 placeholder='e.g. "M27 13.6 A"' />
+          <input id="g-quick" type="text" inputmode="text" autocomplete="off" autocapitalize="characters"
+                 spellcheck="false" enterkeyhint="go" placeholder="M27 13.6 A" />
         </label>
-
-        <div class="divider"><span>or set manually</span></div>
-
-        <label class="fld">
-          <span class="fld-lbl">Road</span>
-          <select id="g-road"></select>
-        </label>
-        <div class="row">
+        <div class="fld-row">
           <label class="fld">
-            <span class="fld-lbl">Distance (km)</span>
+            <span class="fld-lbl">Road</span>
+            <select id="g-road"></select>
+          </label>
+          <label class="fld">
+            <span class="fld-lbl">Distance km</span>
             <input id="g-dist" type="number" inputmode="decimal" step="0.1" min="0" placeholder="13.6" />
           </label>
-          <label class="fld fld-narrow">
-            <span class="fld-lbl">Dir</span>
-            <select id="g-dir"></select>
+          <label class="fld">
+            <span class="fld-lbl">C’way</span>
+            <select id="g-dir" aria-label="Carriageway"></select>
           </label>
         </div>
         <div id="g-hint" class="hint"></div>
-        <button id="g-find" class="btn btn-primary">Find post</button>
+        <button id="g-find" class="btn btn-primary" type="button">Find post</button>
       </div>
 
       <div id="g-result" class="result hidden">
-        <div id="r-hero" class="hero hero-card">
-          <div class="eyebrow">Marker post</div>
-          <div id="r-ref" class="post-ref">—</div>
-          <div class="road-line">
-            <span id="r-road" class="road-no">—</span>
+        <div id="r-detail-warn" class="callout hidden" role="status"></div>
+        <div id="r-card" class="result-card">
+          <div class="result-top">
+            <span id="r-road" class="road-badge"></span>
+            <span id="r-section" class="result-section"></span>
           </div>
+          <div id="r-post" class="hero-post">
+            <span id="r-km" class="post-km">—</span>
+            <span id="r-chip" class="cway-chip none"><span id="r-letter"></span></span>
+          </div>
+          <div id="r-detail" class="result-detail"></div>
         </div>
-        <div id="r-detail" class="result-detail"></div>
-        <button id="r-map" class="btn-mini" type="button">Show this post on the map ↗</button>
         <a id="r-waze" class="btn btn-waze" target="_blank" rel="noopener">
-          <span class="waze-mark"></span> Open in Waze
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 3.5 3.5 10.6l7 2.9 2.9 7 7.1-17Z"/></svg>
+          <span>Open in Waze</span>
         </a>
+        <button id="r-map" class="btn btn-secondary" type="button">Show this post on the map</button>
       </div>
     </section>
 
-    <!-- HAMPSHIRE NETWORK MAP: loaded on demand. -->
+    <!-- HAMPSHIRE NETWORK MAP: loaded on demand -->
     <section id="view-map" class="view hidden" aria-label="Hampshire network map">
       <div id="map-app" class="map-app"><div class="map-loading" role="status">Opening your patch…</div></div>
     </section>
   </main>
 
-  <nav class="tabs">
-    <button class="tab active" data-view="nearest">
-      <span class="tab-ico" aria-hidden="true">◎</span> Nearest
+  <nav class="tabbar" id="tabbar" aria-label="Sections">
+    <button class="tab" type="button" data-view="nearest" aria-current="page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+      <span>Nearest</span>
     </button>
-    <button class="tab" data-view="map">
-      <span class="tab-ico" aria-hidden="true">▧</span> Map
+    <button class="tab" type="button" data-view="map">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4 3 6.5V20l6-2.5 6 2.5 6-2.5V4l-6 2.5L9 4Z"/><path d="M9 4v13.5M15 6.5V20"/></svg>
+      <span>Map</span>
     </button>
-    <button class="tab" data-view="signs">
-      <span class="tab-ico" aria-hidden="true">▥</span> Signs
+    <button class="tab" type="button" data-view="signs">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="11" rx="2"/><path d="M7 8.5h10M7 11.5h6M12 15v5M9 20h6"/></svg>
+      <span>Signs</span>
     </button>
-    <button class="tab" data-view="vehicle">
-      <span class="tab-ico" aria-hidden="true">▭</span> Vehicle
+    <button class="tab hidden" type="button" data-view="vehicle" id="tab-vehicle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M6.5 12h3M12 12h5.5"/></svg>
+      <span>Vehicle</span>
     </button>
-    <button class="tab" data-view="goto">
-      <span class="tab-ico" aria-hidden="true">➔</span> Go to
+    <button class="tab" type="button" data-view="goto">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6"/></svg>
+      <span>Go to</span>
     </button>
   </nav>
 
-  <script src="app.js"></script>
+  <!-- SETTINGS AND ABOUT -->
+  <dialog id="about-sheet" class="sheet" aria-labelledby="about-title">
+    <div class="sheet-grabber" aria-hidden="true"></div>
+    <div class="sheet-head">
+      <h2 id="about-title" class="sheet-title">Settings and about</h2>
+      <button class="btn-text" type="button" data-close>Done</button>
+    </div>
+    <div class="sheet-body">
+      <div class="section-label">Appearance</div>
+      <div class="segmented" id="theme-control" role="group" aria-label="Appearance">
+        <button type="button" data-theme-choice="auto" aria-pressed="true">Automatic</button>
+        <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+      </div>
+
+      <div id="about-live" class="hidden">
+        <div class="section-label">Live tracking</div>
+        <p id="about-live-text"></p>
+      </div>
+
+      <div class="section-label">About</div>
+      <p>Marker Post shows the nearest <em>recorded</em> marker post to your position. Distances are straight-line distances to recorded points, not surveyed measurements. Check the carriageway before you call it in.</p>
+      <p>Unofficial personal tool. Not affiliated with, or endorsed by, National Highways.</p>
+      <p>Mount the phone and read it at a glance. Do not handle it while driving.</p>
+
+      <div class="section-label">Data and licences</div>
+      <p>Road network, emergency areas and sign messages: National Highways. Contains public sector information licensed under the <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">Open Government Licence v3.0</a>. Sources: <a href="https://www.arcgis.com/home/item.html?id=4b64217e40dc48ebb38315a9a95c96e5" target="_blank" rel="noopener">Network Model</a>, <a href="https://www.arcgis.com/home/item.html?id=d293e5e9c6ea459896f1c3f06a470a87" target="_blank" rel="noopener">Emergency Areas</a>.</p>
+      <p>Marker posts and junctions: the <a href="https://www.google.com/maps/d/viewer?mid=1Pi_3GZSLypASYCfiVbP1a-kxWJiII1I" target="_blank" rel="noopener">South East Region map compilation</a>. Its survey date is unknown and the source cautions that posts may not be aligned. Missing posts are never estimated.</p>
+      <p id="about-basemap">Base map © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.</p>
+      <p id="about-version" class="meta"></p>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+
+  <script type="module" src="app.js"></script>
 </body>
 </html>

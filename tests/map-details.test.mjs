@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { getLocationDetails, findNearestRoadSection, layoutAtSection, projectOnSection } from '../map-details.mjs';
+import { getLocationDetails, findNearestRoadSection, layoutAtSection, projectOnSection } from '../map-details.js';
 
 const point = [-1.4, 50.9];
 const lane = (code, startM = 0, endM = 100) => ({ code, startM, endM });
