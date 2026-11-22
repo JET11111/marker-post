@@ -41,8 +41,9 @@ import { fileURLToPath } from 'node:url';
 import { haversine, angleDiff } from '../core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, parseRef, roadLabel, roadClass,
-  buildJunctionChainage, junctionSection, fmtDist, headingUsable,
+  junctionSection, fmtDist, headingUsable,
 } from '../core/posts.js';
+import { buildPostSections } from './post-sections.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PLUGIN = join(ROOT, 'native', 'marker-post-plugin');
@@ -54,14 +55,15 @@ const supplemental = await json('posts-supplemental.json');
 if (Array.isArray(supplemental.posts)) posts.push(...supplemental.posts);
 const junctions = await json('junctions.json');
 computeTravelBearings(posts);
-const junctionIndex = buildJunctionChainage(posts, junctions);
+// Junction sections from National Highways' own section records, as in the web build.
+const sections = buildPostSections(posts, (await json('network.json')).links);
 
 const clean = (s) => String(s ?? '').replace(/[\t\r\n]+/g, ' ').trim();
 const CLASS = { motorway: 'M', 'a-road': 'A', other: 'O' };
 
 function contextFor(p) {
   if (p.link) return `Link ${p.link}`;
-  const section = junctionSection(p, junctionIndex);
+  const section = junctionSection(p, sections);
   if (section) return section.label;
   const nj = nearestJunction(junctions, p.lat, p.lng, p.road);
   return nj ? `${junctionLabel(p.road, nj.jct.jct)} · ${fmtDist(nj.dist)}` : '';

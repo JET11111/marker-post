@@ -11,7 +11,7 @@ import * as diagnostics from './diagnostics.js';
 import { haversine } from './core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, nearestERA,
-  buildRef, parseRef, roadLabel, roadClass, buildJunctionChainage, junctionSection,
+  buildRef, parseRef, roadLabel, roadClass, junctionSection,
   fmtDist, HEADING_MIN_SPEED,
 } from './core/posts.js';
 
@@ -36,7 +36,7 @@ function setCallout(node, message) {
 let POSTS = [];
 let JUNCTIONS = [];
 let ERAS = []; // Emergency Refuge Areas — only present on smart-motorway roads.
-let junctionIndex = new Map();
+let SECTIONS = null;    // junction sections from National Highways' records (data/post-sections.json)
 const byRoad = new Map();
 let lastPos = null;       // latest GPS fix
 let lastFixAt = 0;        // when it arrived (ms)
@@ -44,11 +44,15 @@ let lastFoundPost = null; // go-to result
 let currentView = 'nearest';
 
 async function loadData() {
-  const [posts, junctions, eras] = await Promise.all([
+  const [posts, junctions, eras, sections] = await Promise.all([
     loadBundled('posts.json', { cache: 'force-cache' }),
     loadBundled('junctions.json', { cache: 'force-cache' }),
     loadBundled('eras.json', { cache: 'force-cache' }),
+    // Made when the app is built, from National Highways' own section records.
+    // Without it the junction-section row is simply not shown.
+    loadBundled('post-sections.json', { cache: 'no-cache' }).catch(() => null),
   ]);
+  SECTIONS = sections;
   POSTS = posts;
   // Retain unusual interchange road names and original link labels. They are
   // real source records, but their survey date / physical presence is unknown.
@@ -63,7 +67,6 @@ async function loadData() {
     byRoad.get(p.road).push(p);
   }
   computeTravelBearings(POSTS);
-  junctionIndex = buildJunctionChainage(POSTS, JUNCTIONS);
 }
 
 // ---------- the big post display (shared by Nearest and Go to) ----------
@@ -172,10 +175,11 @@ function renderNearest() {
   setText(el('np-road'), roadLabel(post.road));
   setText(el('np-dist'), fmtDist(dist));
 
-  // The junction section, where the records support one. Never a guess.
-  const section = post.link ? null : junctionSection(post, junctionIndex);
-  setText(el('np-section-lbl'), section?.kind === 'at' ? 'Junction' : 'Between junctions');
-  setText(el('np-section'), section ? section.label : '');
+  // The junction section, as National Highways' record of this stretch of
+  // carriageway describes it. No record, no row: never a guess.
+  const section = post.link ? null : junctionSection(post, SECTIONS);
+  setText(el('np-section-lbl'), section?.kind === 'within' ? 'Within junction' : 'Between junctions');
+  setText(el('np-section'), section ? (section.kind === 'within' ? section.at : section.label) : '');
   show(el('np-section-row'), Boolean(section));
 
   const row = el('np-jct-row');
@@ -364,7 +368,7 @@ function findPost() {
   sectionEl.classList.toggle('warn', mode !== 'exact');
   if (mode === 'exact') {
     show(warn, false);
-    setText(sectionEl, junctionSection(match, junctionIndex)?.label || (match.link ? `Link ${match.link}` : ''));
+    setText(sectionEl, junctionSection(match, SECTIONS)?.label || (match.link ? `Link ${match.link}` : ''));
     setText(el('r-detail'),
       `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km · post ${match.ref}${match.link ? ' · source survey date unknown' : ''}`);
     P.haptic('success');

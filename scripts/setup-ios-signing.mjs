@@ -117,11 +117,12 @@ if (ok(visibility)) {
 console.log(`
 The build machine needs a token that can read and write that one repository and nothing else.
 Create it in your browser:
-  1. Open https://github.com/settings/personal-access-tokens/new
-  2. Token name: Marker Post signing.   Expiration: 1 year (GitHub will email you before it runs out).
-  3. Repository access: "Only select repositories", and pick ${signingRepo}.
-  4. Permissions > Repository permissions > Contents: "Read and write". Leave everything else alone.
-  5. Press "Generate token" and copy it (it starts with github_pat_).`);
+  1. Open https://github.com/settings/personal-access-tokens/new?name=Marker+Post+signing&expires_in=365&contents=write
+     The name, a one-year expiry and the Contents permission are filled in for you.
+     (If GitHub says the name is already in use, add the year to it. GitHub emails you before the token runs out.)
+  2. Repository access: "Only select repositories", and pick ${signingRepo}.
+  3. Check that Permissions > Repository permissions > Contents says "Read and write". Leave everything else alone.
+  4. Press "Generate token" and copy it (it starts with github_pat_).`);
 const token = await ask('  Paste the token here (it will not be shown): ', { secret: true });
 if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(token)) fail('That does not look like a GitHub token.');
 

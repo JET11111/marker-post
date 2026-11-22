@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Static checks that need no dependencies: every script parses, every file the
-// app imports exists, and both build targets package cleanly. Run by CI and
-// by "npm run check".
+// Static checks: every script parses, every file the app imports exists, and
+// both build targets package cleanly. Run by CI and by "npm run check". Needs
+// "npm install" first: the phone build copies Capacitor's runtime from node_modules.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

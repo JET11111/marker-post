@@ -32,12 +32,36 @@ These rules are deliberate. Please keep them when changing anything.
 
 - Unknown stays unknown. A missing record is shown as not recorded, never as "none".
 - Distances are straight-line, and say so. They are not driving distances.
-- A carriageway that could not be confirmed from your direction of travel is said to be so: the first page notes "nearest by position only, check the carriageway", and the Lock Screen, notification and widgets show the letter outlined instead of filled.
+- A carriageway that could not be confirmed from your direction of travel is said to be so. The first page adds the line "Nearest post by position only. Check the carriageway." The Lock Screen, notification and widgets show the letter outlined instead of filled.
 - Older and unverified records (for example the 2025 emergency area list) stay labelled as such.
 - A position that has gone stale never looks current: the readout dims and says when the last fix was.
 - Widgets show a "last updated" time and never claim to be live. The Live Activity and the Android notification are the live displays.
 
 Where the data comes from, and its limits: [docs/marker-post-sources.md](docs/marker-post-sources.md), [docs/network-data.md](docs/network-data.md), [docs/map-feature.md](docs/map-feature.md).
+
+## Running a command
+
+Some steps in the guides say "in the app's folder, run" and then give a command. This is how to do that on this computer.
+
+1. Press Start, type `cmd` and press Enter. That opens Command Prompt. Use Command Prompt, not PowerShell: PowerShell may refuse to run `npm`.
+2. Paste this line and press Enter:
+
+   ```
+   cd /d %USERPROFILE%\marker-post\apps\marker-post
+   ```
+
+   That is the app's folder: the one that contains `capacitor.config.json`. It is not the outer `marker-post` folder, which is a different project.
+3. Paste the command from the guide and press Enter.
+
+The commands need three tools: Node.js 22 or newer, Git, and the GitHub command-line tool (`gh`). To check that they are there, run these one at a time. Each should answer, the first two with a version number:
+
+```
+node --version
+git --version
+gh auth status
+```
+
+If `gh` says you are not logged in, run `gh auth login` and answer its questions. If Windows says a command "is not recognized", that tool is not installed: Node.js comes from <https://nodejs.org>, Git from <https://git-scm.com> and `gh` from <https://cli.github.com>.
 
 ## Working on it
 
@@ -46,7 +70,6 @@ You need [Node.js](https://nodejs.org) 22 or newer. Nothing else for the web app
 ```sh
 node scripts/serve.mjs            # the app at http://localhost:8080 (uses your real position)
 node --test tests/*.test.mjs      # the tests
-node scripts/check.mjs            # every file parses, imports resolve, both builds work
 ```
 
 To try it without GPS, add a simulated position to the address. The app labels it "Simulated":
@@ -61,6 +84,7 @@ http://localhost:8080/?theme=dark                         force the dark or ligh
 The other commands need `npm install` once (it fetches the Capacitor tools):
 
 ```sh
+npm run check          # every file parses, imports resolve, both builds work
 npm run build          # the web app, as published, into www/
 npm run preview        # build it and serve www/ on http://localhost:8080
 npm run build:native   # the web app and lookup data for the phone apps
@@ -102,8 +126,9 @@ What to check, and what could only be checked on a real device: [docs/testing-on
 
 ## Licences and attribution
 
-- Road network, marker posts and signs: National Highways, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+- Road network, emergency areas and signs: National Highways, [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+- Marker posts and junctions: the [South East Region map compilation](https://www.google.com/maps/d/viewer?mid=1Pi_3GZSLypASYCfiVbP1a-kxWJiII1I). Its survey date is unknown and its licence has not been independently established: see [docs/marker-post-sources.md](docs/marker-post-sources.md).
 - Street map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL), as vector tiles from a [Protomaps](https://protomaps.com) build.
 - Map engine and fonts: MapLibre GL JS, PMTiles, Protomaps basemaps, Noto Sans. Licences are in `vendor/`.
 
-Both attributions stay visible on the map.
+The OpenStreetMap and National Highways attributions stay visible on the map. The link to the marker post compilation is in Settings and about.

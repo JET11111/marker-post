@@ -8,9 +8,11 @@ This page is the checklist for the day you do.
 
 ### 1. Look at it
 
+The branch is on GitHub (pushed on 22 November 2026). Pushing it changed nothing on the live site.
+
 Any of these shows you the new app without affecting the live one:
 
-- **On this computer, exactly as it will be published**: in the app's folder run `npm run preview`, then open <http://localhost:8080>. Add `?sim=50.93795,-1.352527,110,30` to the address for a simulated position on the M27. Stop it with Ctrl+C when you have finished.
+- **On this computer, exactly as it will be published**: [in the app's folder](../README.md#running-a-command) run `npm run preview`, then open <http://localhost:8080>. Add `?sim=50.93795,-1.352527,110,30` to the address for a simulated position on the M27. Stop it with Ctrl+C when you have finished.
 - **Side by side at several phone sizes**: run `node scripts/serve.mjs` instead and open <http://localhost:8080/docs/mobile-preview.html>.
 - **On an Android phone**: the APK is built from the branch. See [android-app.md](android-app.md).
 - **On the iPhone**: TestFlight builds from the branch too. See [ios-testflight.md](ios-testflight.md).
@@ -38,7 +40,17 @@ That is safe to do at any time: the live site keeps being published by the workf
 ## Merging
 
 1. On GitHub open **Pull requests**. If there is not one for `feature/native-app` yet, press **New pull request**, set "compare" to `feature/native-app`, and press **Create pull request**.
-2. Check that the checks at the bottom are green.
+2. Wait for the checks at the bottom of the page. These four must show a green tick (each may be listed twice):
+   - **map-checks / check**
+   - **android / build**
+   - **ios / Lookup tests**
+   - **ios / Build (Xcode 26)**
+
+   Two others are early warnings. They may show a red cross without stopping you:
+   - **ios / Build (Xcode 27 preview)**: it tries the build with Xcode 27, which Apple will require from April 2027.
+   - **android / Run it on an emulator**: this check is new and still being proven.
+
+   A grey "Skipped" entry is normal. If a warning one is red, tell me afterwards, but you can still merge.
 3. Press **Merge pull request**.
 
 The "Deploy to GitHub Pages" workflow then builds and publishes the site. It takes two or three minutes; the first time, about a minute longer while it cuts the street map.
@@ -52,15 +64,13 @@ The "Deploy to GitHub Pages" workflow then builds and publishes the site. It tak
 
 ## If it goes wrong
 
-The quickest way back is to republish the last good version:
+The way back is to undo the merge:
 
-1. On GitHub: **Actions**, **Deploy to GitHub Pages**.
-2. Open the last run from before the merge (it has a green tick).
-3. Press **Re-run all jobs**.
+1. On GitHub open the merged pull request (**Pull requests**, then **Closed**) and press **Revert**.
+2. GitHub offers a new pull request that undoes the merge. Press **Create pull request**, then **Merge pull request**. The old site is back two or three minutes later, and it stays back.
+3. Then tell me what was wrong.
 
-That puts the old site back within a few minutes without changing any code. Then tell me what was wrong.
-
-To undo the merge itself, press **Revert** on the merged pull request and merge the revert it creates.
+Re-running an old "Deploy to GitHub Pages" run also brings the old site back, but only until the next sign or network update, usually within a few hours. Those updates republish whatever is on `master`. Do not rely on it.
 
 ## What does not change
 

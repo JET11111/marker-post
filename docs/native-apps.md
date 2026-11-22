@@ -75,7 +75,7 @@ JavaScript, never rebuilt natively.
 | `km` | chainage for display, `17.4`; empty if the recorded reference is unusual (then show `ref`) |
 | `letter` | carriageway letter; may be empty |
 | `ref` | the recorded reference, verbatim: `P17/4A` |
-| `context` | `J4 – J5`, `At J5`, `A303 jct · 349 m`, `Link M27B/M3B`, or empty |
+| `context` | `J4 – J5`, `Within J5`, `A303 jct · 349 m`, `Link M27B/M3B`, or empty |
 | `confirmed` | carriageway chosen by direction of travel; `false` = by position only |
 | `fixTime` | time of the GPS fix (ms since 1970 in JS and Android, `Date` in Swift) |
 | `stale` | no usable fix recently: show as last known, not current |
@@ -201,12 +201,13 @@ Everything is in the plugin's library module (Kotlin 2.2.20, no Compose).
   as fallback when Play services is unavailable. Fine location while in use
   only; background location is never requested.
 - Ongoing notification: channel importance low, silent, visible on the lock
-  screen, one "Stop" action. Swiping it away stops tracking (and the widget
-  then says so). On Android 16+ it also asks to be a promoted Live Update with
-  the post as its short text.
+  screen, one "Stop" action. Swiping it away stops tracking (the widget keeps
+  the last post and its time). On Android 16+ it also asks to be a promoted
+  Live Update with the post as its short text.
 - Widget: a classic `AppWidgetProvider` with `RemoteViews`, updated directly
-  by the service while tracking and by `publishPost` otherwise. Tap opens the
-  app.
+  by the service while tracking and by `publishPost` otherwise. Its time line
+  is "Last updated HH:mm", or "No GPS since HH:mm" when the position is stale.
+  It never says "Live". Tap opens the app.
 
 ## 7. What the native surfaces look like
 
@@ -246,6 +247,9 @@ And the automated checks on GitHub use them to drive the app in a simulator and
 an emulator, where nothing can press a button.
 
 A link can only do what the buttons in the app do. Unknown links just open the app.
+
+Opening a link from a real automation app has not been tried on a phone yet. It
+is on the list in docs/testing-on-device.md (steps C8 and F9).
 
 ## 9. What cannot be checked without a device
 

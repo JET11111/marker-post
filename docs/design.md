@@ -28,7 +28,7 @@ Light and dark follow the phone. The user can force either in Settings and about
 | `--accent` | `#FFB81C` | `#FFC23D` | the switch, the primary button, carriageway blocks |
 | `--on-accent` | `#1A1200` | `#1A1200` | text on amber |
 | `--accent-text` | `#8F5600` | `#FFC23D` | amber as text (the road under the post, selected tab, links) |
-| `--good` | `#1A7F45` | `#3DDC84` | a live GPS fix |
+| `--good` | `#17753E` | `#3DDC84` | a live GPS fix |
 | `--warn-bg` / `--warn-text` | `#FFF4D6` / `#6B4A00` | `#3A2B07` / `#FFD98A` | cautions |
 | `--bad` | `#C4281C` | `#FF6B6B` | errors, no GPS |
 | `--mway` | `#0B62B8` | `#0B62B8` | motorway badge and network |
@@ -55,13 +55,19 @@ The system font everywhere (San Francisco on iPhone, Roboto on Android), so the 
 | Row label, secondary | 15 / 20 | 400 |
 | Caption, time, note | 13 / 18 | 400–600 |
 
-Nothing that carries information is smaller than 13 px. Numbers that change in place use tabular figures so they do not jiggle.
+Nothing that carries information is smaller than 13 px, with these exceptions:
+
+- the first page's small capitals label (12 px) and the "Hampshire" line under the name (11 px), which are the original design;
+- the map's attribution, and its scale bar on wide screens (12 px);
+- the road numbers and symbols drawn on the map itself, and the same symbols in the map's layer list (10 to 11 px).
+
+Numbers that change in place use tabular figures so they do not jiggle.
 
 ## Space and shape
 
 - Side margins 16 px. Content keeps clear of the notch, Dynamic Island, home indicator and rounded corners through the `--safe-*` values.
 - Corner radius: 9 (badges), 12 (fields), 14 (rows and buttons), 16 (cards), 24 (sheets).
-- **Tap targets are at least 48 px high**; the primary button is 56. Controls you need while moving are in the lower two thirds of the screen, within reach of a thumb.
+- **Tap targets are at least 48 px high**; the primary button is 56. Two controls look smaller than that and answer a tap over a 48 px area: the Settings and about button on the first page (drawn at 44 px, as in the original design) and the "Road data" pill on the map (drawn at 32 px). Controls you need while moving are in the lower two thirds of the screen, within reach of a thumb.
 
 ## The first page
 
@@ -70,8 +76,9 @@ The Nearest page is the original app's page, and the owner has asked for it to s
 - Top: the small post mark and "Marker Post / Hampshire" on the left; the GPS state on the right ("Live" and the accuracy, or what is wrong).
 - "Nearest marker post" in small spaced capitals, then the post's reference as large as the width allows, centred. The records' leading "P" is left out: `P20/9A` is shown as `20/9A`.
 - The road beneath it, in amber.
-- One card of rows: the junction section where the records give one, the straight-line distance to the post, the nearest junction, and the nearest emergency area reference (labelled unverified).
-- A small line with the time of the reading. It also says when the carriageway was chosen by position alone, and for interchange posts that the survey date is unknown.
+- One card of rows: the junction section, the straight-line distance to the post, the nearest junction, and the nearest emergency area reference (labelled unverified). The junction section is National Highways' own description of that stretch of carriageway ("Between junctions J5 – J7", or "Within junction J5" between a junction's slip roads). It is never worked out from distances, and where the records give none the row is left out.
+- A small line: "updated", the time of the reading, and "distances are straight-line". For interchange posts it gives the link (for example M27B/M3B) and "source survey date unknown" in place of the time.
+- A second small line, "Nearest post by position only. Check the carriageway.", only when the direction of travel has not confirmed the carriageway.
 - "Explore on the network map", then the "Prefer my direction of travel" switch.
 
 When the position goes stale the reference and road dim and a caution strip appears. In light mode the same layout is drawn on the light palette.

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { haversine, bearing, angleDiff } from '../core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, nearestERA,
-  buildRef, parseRef, roadLabel, roadClass, buildJunctionChainage, junctionSection,
+  buildRef, parseRef, roadLabel, roadClass, junctionSection, junctionPair, staleAfterMs,
   headingUsable, fmtDist,
 } from '../core/posts.js';
 
@@ -202,64 +202,91 @@ test('a post with no travel bearing can be returned without claiming the heading
   assert.equal(result.headingUsed, false);
 });
 
-test('junction chainages come from snapping each junction record to a mainline post', async () => {
-  const posts = await loadPosts(), junctions = await json('junctions.json');
-  const index = buildJunctionChainage(posts, junctions);
-  const m27 = index.get('M27').map((j) => j.jct);
-  assert.deepEqual(m27, ['J1', 'J2', 'J3', 'J4', 'J5', 'J7', 'J8', 'J9', 'J10', 'J11', 'J12']);
-  assert.deepEqual(index.get('M3').map((j) => j.jct),
-    ['J4', 'J4A', 'J5', 'J6', 'J7', 'J8', 'J9', 'J10', 'J11', 'J12', 'J13', 'J14']);
-  for (const list of index.values()) for (const j of list) {
-    assert.ok(j.snapM < 400, `${j.jct} snapped ${Math.round(j.snapM)} m away`);
-  }
-  assert.equal(index.has('M271'), false, 'no junction records for the M271');
-  assert.equal(index.has('CHILWORTH'), false);
+// The table the build makes from National Highways' section records.
+let sectionsOnce = null;
+const loadSections = () => (sectionsOnce ||= (async () => {
+  const { buildPostSections } = await import('../scripts/post-sections.mjs');
+  return buildPostSections(await loadPosts(), (await json('network.json')).links);
+})());
+
+test('a record description gives a section only when it names numbered junctions', async () => {
+  const { sectionFromDescription } = await import('../scripts/post-sections.mjs');
+  assert.deepEqual(sectionFromDescription('M27 eastbound between J4 and J5'), ['J4', 'J5']);
+  assert.deepEqual(sectionFromDescription('M3 eastbound between J14 and J13'), ['J13', 'J14'], 'shown low to high');
+  assert.deepEqual(sectionFromDescription('M3 westbound between J4A and J5'), ['J4A', 'J5']);
+  assert.deepEqual(sectionFromDescription('M27 eastbound within J12 before M275 exit'), ['J12']);
+  assert.equal(sectionFromDescription('A34 northbound between A303 and B4640'), null, 'named roads are not numbered junctions');
+  assert.equal(sectionFromDescription('A31 westbound within the A338 near Ringwood (east) junction'), null);
+  assert.equal(sectionFromDescription('M27 J5 westbound exit'), null);
+  assert.equal(sectionFromDescription('M27 eastbound between J4 and J4'), null);
+  assert.equal(sectionFromDescription(''), null);
+  assert.equal(sectionFromDescription(undefined), null);
+  assert.deepEqual(junctionPair('J14', 'J13'), ['J13', 'J14']);
+  assert.deepEqual(junctionPair('J5', 'J4A'), ['J4A', 'J5']);
 });
 
-test('junction sections are stated only where recorded junctions bracket the post', async () => {
-  const posts = await loadPosts(), junctions = await json('junctions.json');
-  const index = buildJunctionChainage(posts, junctions);
-  const at = (road, ref) => junctionSection(posts.find((p) => p.road === road && p.ref === ref), index);
+test("junction sections are National Highways' own description of the stretch, never a distance rule", async () => {
+  const posts = await loadPosts(), sections = await loadSections();
+  const at = (road, ref) => junctionSection(posts.find((p) => p.road === road && p.ref === ref), sections);
 
   assert.deepEqual(at('M27', 'P17/4A'), { kind: 'between', label: 'J4 – J5', from: 'J4', to: 'J5' });
-  assert.equal(at('M27', 'P17/4B').label, 'J4 – J5', 'the label does not depend on the carriageway');
   assert.equal(at('M27', 'P20/9A').label, 'J5 – J7', 'the M27 has no J6');
-  assert.equal(at('M3', 'P116/4B').label, 'J13 – J14');
+  assert.equal(at('M3', 'P116/4B').label, 'J13 – J14', 'written "between J14 and J13" for that carriageway');
   assert.equal(at('M3', 'P56/5A').label, 'J4A – J5');
   assert.equal(at('M3', 'P54/0A').label, 'J4 – J4A');
-  // A3(M) junction numbers fall as chainage rises: the label still reads low to high.
   assert.equal(at('A3M', 'P3/0A').label, 'J3 – J4');
 
-  // Close to a junction the section is ambiguous, so it says where you are instead.
-  assert.deepEqual(at('M27', 'P19/2A'), { kind: 'at', label: 'At J5', at: 'J5' });
-  assert.equal(at('M27', 'P19/4A').label, 'At J5');
-  assert.equal(at('M27', 'P19/6A').label, 'J5 – J7');
+  // Inside a junction the record says so, however far the post is from the junction's centre.
+  assert.deepEqual(at('M27', 'P19/2A'), { kind: 'within', label: 'Within J5', at: 'J5' });
+  assert.equal(at('M27', 'P44/5A').label, 'Within J12', 'the old 300 m rule said J11 – J12 here');
+  assert.equal(at('M3', 'P115/8A').label, 'J13 – J14', 'the old 300 m rule said At J13 here');
+  assert.equal(at('M27', 'P19/4A').label, 'J5 – J7');
+  // The two carriageways can differ at one reference: their slip roads are not opposite each other.
+  assert.equal(at('M27', 'P17/4B').label, 'Within J4');
 
   // Unknown stays unknown.
-  assert.equal(at('M27', 'P1/7A'), null, 'before the first recorded junction');
-  assert.equal(at('M27', 'P46/6A'), null, 'beyond the last recorded junction');
-  assert.equal(at('A3M', 'P9/0A'), null, 'A3(M) J1 is not in the junction records');
-  assert.equal(at('A34', 'P13/2A'), null, 'A-road junction records are named roads, not a numbered sequence');
+  assert.equal(at('A3M', 'P9/0A'), null, 'no record with numbered junctions here');
+  assert.equal(at('A34', 'P13/2A'), null, 'A-road records name the crossing roads, not numbered junctions');
   assert.equal(at('M27', 'P33/0L'), null, 'slip and link letters are not placed on the mainline');
-  assert.equal(at('M271', 'P11/0L'), null, 'no junction records for this road');
-  assert.equal(junctionSection(posts.find((p) => p.link), index), null, 'interchange link posts');
-  assert.equal(junctionSection(null, index), null);
+  assert.equal(at('M271', 'P11/0L'), null);
+  assert.equal(at('M27', 'P41/2A'), null, "this post's recorded position is nearer the other carriageway's record");
+  assert.equal(junctionSection(posts.find((p) => p.link), sections), null, 'interchange link posts');
+  assert.equal(junctionSection(null, sections), null);
+  // No table (an old build, or the file failed to load): no section, and no error.
+  const known = posts.find((p) => p.road === 'M27' && p.ref === 'P17/4A');
+  assert.equal(junctionSection(known, null), null);
+  assert.equal(junctionSection(known, {}), null);
+  assert.equal(junctionSection(known, { roads: { M27: { 'P17/4A': ['4', '5'] } } }), null, 'a malformed entry is ignored');
+  assert.equal(junctionSection(known, { roads: { M27: { 'P17/4A': ['J4', 'J4'] } } }), null);
 });
 
-test('every mainline motorway post gets a section, an "at" label, or nothing — never a guess', async () => {
-  const posts = await loadPosts(), junctions = await json('junctions.json');
-  const index = buildJunctionChainage(posts, junctions);
-  const counts = { between: 0, at: 0, none: 0 };
+test('every post with a section is a mainline motorway post matched to its own carriageway record', async () => {
+  const posts = await loadPosts(), sections = await loadSections();
+  const counts = { between: 0, within: 0, none: 0 };
   for (const p of posts) {
-    const s = junctionSection(p, index);
+    const s = junctionSection(p, sections);
     counts[s ? s.kind : 'none']++;
     if (!s) continue;
     assert.ok(['M27', 'M3', 'A3M'].includes(p.road), `${p.road} ${p.ref} unexpectedly has a section`);
     assert.ok(['A', 'B'].includes(p.direction));
     if (s.kind === 'between') assert.match(s.label, /^J\d+[A-Z]? – J\d+[A-Z]?$/);
-    else assert.match(s.label, /^At J\d+[A-Z]?$/);
+    else assert.match(s.label, /^Within J\d+[A-Z]?$/);
   }
-  assert.ok(counts.between > 1800 && counts.at > 150 && counts.none > 2500, JSON.stringify(counts));
+  assert.ok(counts.between > 1800 && counts.within > 400 && counts.none > 2400, JSON.stringify(counts));
+  // Every entry in the table belongs to a post: nothing is left over from other data.
+  const refs = new Set(posts.map((p) => `${p.road}|${p.ref}`));
+  for (const [road, table] of Object.entries(sections.roads)) for (const ref of Object.keys(table)) {
+    assert.ok(refs.has(`${road}|${ref}`), `${road} ${ref} is not a post`);
+  }
+});
+
+test('a position goes stale after 15 s moving, 30 s at unknown speed, 2 minutes standing', () => {
+  assert.equal(staleAfterMs(31), 15000);
+  assert.equal(staleAfterMs(0), 120000);
+  assert.equal(staleAfterMs(2.5), 120000, 'at the threshold the heading is not trusted either');
+  assert.equal(staleAfterMs(null), 30000);
+  assert.equal(staleAfterMs(undefined), 30000);
+  assert.equal(staleAfterMs(NaN), 30000)
 });
 
 test('nearest junction, ERA and labels behave as before', async () => {

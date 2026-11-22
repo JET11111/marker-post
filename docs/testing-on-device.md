@@ -1,6 +1,6 @@
 # Testing on a phone and in a vehicle
 
-The web app has been checked in a desktop browser at phone sizes, in light and dark, online and with the network cut. The Swift and Kotlin lookups are checked against the web app's answers on every build. What nobody but you can check is how it behaves on a real phone, with real GPS, in a real vehicle. This page is that list.
+The web app has been checked in a desktop browser at phone sizes, in light and dark, online and with the network cut. On 22 November 2026 the Swift and Kotlin lookups passed on GitHub against 2,056 positions whose answers come from the web app's own code, and both phone apps compiled there. Nothing has yet been run on a real phone. What nobody but you can check is how it behaves there, with real GPS, in a real vehicle. This page is that list.
 
 **Set it up before you move, and let a passenger do the pressing.** Everything here is designed to be glanced at, not operated, while driving.
 
@@ -10,8 +10,8 @@ When something is wrong, the most useful thing you can send is: what you expecte
 
 1. Open the app. No white flash at night: the screen should go from the launch screen straight to the app's own background.
 2. Allow location when asked ("While using", precise).
-3. **Nearest** shows the post's reference in very large text (for example 20/9A) with the road beneath it in amber, within a few seconds of a GPS fix. The card below gives the junction section, the distance, the nearest junction and, on smart motorways, the nearest emergency area reference.
-4. Stand still. The small line under the card may say "nearest by position only, check the carriageway": that is correct, it means your direction of travel has not confirmed which carriageway you are on.
+3. **Nearest** shows the post's reference in very large text (for example 20/9A) with the road beneath it in amber, within a few seconds of a GPS fix. The card below gives the junction section, the distance, the nearest junction and, on smart motorways, the nearest emergency area reference. The small line under the card says "updated" with the time, and "distances are straight-line".
+4. Stand still. A second small line may appear under the card: "Nearest post by position only. Check the carriageway." That is correct: it means your direction of travel has not confirmed which carriageway you are on.
 5. Switch the phone to dark mode and back. The app follows.
 6. Turn the phone on its side. The layout changes to a wide one and nothing is cut off, including beside the camera cut-out.
 7. Switch on aeroplane mode, close the app completely and open it again. Nearest still works; **Map** still shows the network and (in the phone apps) the street map; **Signs** says it is showing a saved copy and when it was saved.
@@ -19,11 +19,11 @@ When something is wrong, the most useful thing you can send is: what you expecte
 
 ## B. On the road (as a passenger, or in a cradle)
 
-1. With **Prefer my direction of travel** on, the "by position only" note goes within a few seconds of moving off, and the letter matches the carriageway you are on.
+1. With **Prefer my direction of travel** on, the line "Nearest post by position only. Check the carriageway." goes within a few seconds of moving off, and the letter matches the carriageway you are on.
 2. The post number counts up or down every 100 metres, in step with the posts on the verge. Compare a few. If it is consistently one post behind or ahead, note your speed and tell me.
 3. Pass under or over another road, and through an interchange. The readout should not jump to the other road while you are moving on the main carriageway. Slip roads and link roads show their own references where the data has them.
 4. Go through a place with no signal. Nothing changes.
-5. Stop on the hard shoulder or in an emergency area (when you are there anyway). The post should stay put, on the same carriageway, without the "by position only" note.
+5. Stop on the hard shoulder or in an emergency area (when you are there anyway). The post should stay put, on the same carriageway, without the "Nearest post by position only" line.
 6. Cover the phone or go under cover until GPS is lost. Within about 15 seconds while moving, the readout **dims** and says "No GPS update for …" and "last known post". It must never keep showing an old post as if it were current.
 
 ## C. iPhone: Live Activity
@@ -38,6 +38,7 @@ When something is wrong, the most useful thing you can send is: what you expecte
    - iOS 26 or later: nothing should change. A replacement activity takes over before the 8-hour limit.
    - iOS 18: the Lock Screen warns that the display will end at a stated time. Opening the app once renews it.
    Tell me which iOS version you have and what you saw. This is the part I could least check.
+8. With live tracking off, open the link `markerpost://live/start`. Either set up the Shortcuts automation described in [ios-testflight.md](ios-testflight.md) ("Starting it when you get in the vehicle"), or type the link into Safari's address bar. If Safari asks whether to open Marker Post, say yes. The app opens and live tracking starts. `markerpost://live/stop` stops it.
 
 ## D. iPhone: CarPlay (iOS 26 or later)
 
@@ -63,9 +64,10 @@ Widgets are refreshed by iOS when it chooses, so they can be minutes behind. Tha
 3. Lock the phone and drive. The notification follows the post.
 4. Lose GPS (as in B6). The notification says "No GPS since" with a time, and "last known post".
 5. Press **Stop** on the notification. It goes, and the button in the app is back to **Start live tracking**.
-6. Add the widget (press and hold the home screen, **Widgets**, **Marker Post**). It says "Live" with a time while tracking, otherwise "Last updated".
+6. Add the widget (press and hold the home screen, **Widgets**, **Marker Post**). It says "Last updated" with a time, and the time moves on while tracking. It never says "Live".
 7. Press the phone's Back button or swipe back: inside the app it closes whatever is open (a sheet, the search, the map card); on the first screen it sends the app to the background rather than closing it.
 8. Leave tracking on for a few hours with the screen off. If it stops by itself, see "If tracking stops by itself" in [android-app.md](android-app.md), and tell me the phone model.
+9. If you have an automation app that can open a link: with live tracking off, open `markerpost://live/start` from it. The app opens and live tracking starts. `markerpost://live/stop` stops it. Tell me which app you used and whether it worked.
 
 ## G. Map
 
@@ -79,9 +81,10 @@ Widgets are refreshed by iOS when it chooses, so they can be minutes behind. Tha
 
 ## What I could not check, in order of risk
 
-1. **The Swift and Kotlin code has never run on a device.** It compiles on GitHub and the lookup is tested there, but permissions, background behaviour and the notification, Live Activity and widget layouts have only been reviewed, not seen.
+1. **The Swift and Kotlin code has never run on a real phone.** On 22 November 2026 both apps compiled on GitHub, and the lookups passed there against 2,056 positions. But permissions, background tracking, the Live Activity, CarPlay, the widgets and the Android notification have only been reviewed, not seen on a device.
 2. **The eight-hour Live Activity handover** (C7). It depends on iOS behaviour that cannot be simulated.
 3. **CarPlay** (D). Apple's documentation says a Live Activity appears there on iOS 26; I have not seen this one do it.
 4. **Battery use** over a 12-hour shift with tracking on. It uses GPS once a second, like a sat-nav. Expect to keep the phone on charge.
 5. **The map on an iPhone.** It needs iOS 16.4 or later for the map engine; the app needs iOS 18 anyway. Performance on an older phone is unknown.
 6. **Phones that close background apps** (F8).
+7. **The `markerpost://` links from a real automation app** (C8, F9). The app handles the links, but I have not been able to open one from Shortcuts or from an Android automation app.

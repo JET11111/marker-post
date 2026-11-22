@@ -87,6 +87,11 @@ function feedGps() {
 // ---------------------------------------------------------------- the test
 
 adb('wait-for-device');
+// A freshly started emulator is slow, and Android then offers to close its own
+// home screen ("Pixel Launcher isn't responding") on top of the app. Those boxes
+// are switched off for the test, as Android's own test tools do.
+quiet('shell', 'settings', 'put', 'global', 'hide_error_dialogs', '1');
+quiet('shell', 'am', 'broadcast', '-a', 'android.intent.action.CLOSE_SYSTEM_DIALOGS');
 quiet('shell', 'cmd', 'uimode', 'night', 'yes');
 // -g answers "allow" to the location and notification questions, as a person would.
 adb('install', '-r', '-g', apk);

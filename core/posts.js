@@ -15,9 +15,6 @@ import { haversine, bearing, angleDiff } from './geo.js';
 /** Speed (m/s) above which a GPS heading is trusted for carriageway choice. */
 export const HEADING_MIN_SPEED = 2.5;
 
-/** Within this chainage distance (km) of a junction the label reads "At J5". */
-export const AT_JUNCTION_KM = 0.3;
-
 /** Display label for a source road name (A3M is the A3(M) motorway). */
 export const roadLabel = (road) =>
   ({ A3M: 'A3(M)', CHILWORTH: 'Chilworth · M3 / M27', PITSEA: 'M27 / M275 interchange' }[road] || road);
@@ -186,67 +183,48 @@ function junctionOrder(name) {
   return m ? [Number(m[1]), m[2]] : [Infinity, name];
 }
 
-/**
- * Chainage of each junction record, found by snapping the junction's recorded
- * point to the nearest mainline (A/B) post on the same road. This is the same
- * snap the app already uses to split the M3 sign filter at J7.
- * Returns Map(road -> [{ jct, km, snapM }]) sorted by chainage. `snapM` is the
- * straight-line distance from the junction point to the post it snapped to.
- */
-export function buildJunctionChainage(posts, junctions) {
-  const mainline = new Map(); // road -> mainline posts
-  for (const p of posts) {
-    if (p.link || !MAINLINE.has(p.direction)) continue;
-    if (!mainline.has(p.road)) mainline.set(p.road, []);
-    mainline.get(p.road).push(p);
-  }
-  const byRoad = new Map();
-  for (const j of junctions) {
-    const list = mainline.get(j.road);
-    if (!list || !list.length) continue;
-    let best = null, bestD = Infinity;
-    for (const p of list) {
-      const d = haversine(j.lat, j.lng, p.lat, p.lng);
-      if (d < bestD) { bestD = d; best = p; }
-    }
-    if (!byRoad.has(j.road)) byRoad.set(j.road, []);
-    byRoad.get(j.road).push({ jct: j.jct, km: best.distance, snapM: bestD });
-  }
-  for (const list of byRoad.values()) list.sort((a, b) => a.km - b.km);
-  return byRoad;
-}
-
-/**
- * The junction section a mainline post sits in, e.g. "J4 – J5", or "At J5"
- * within AT_JUNCTION_KM of a junction. Only for mainline (A/B) posts on roads
- * whose junction records are numbered (J…), and only where a recorded
- * junction lies on BOTH sides of the post. Everything else returns null:
- * slip and link letters, interchange posts, A-roads with named junctions, and
- * the ends of a road beyond the last recorded junction are left unknown
- * rather than guessed.
- */
-export function junctionSection(post, junctionChainage) {
-  if (!post || post.link || !MAINLINE.has(post.direction)) return null;
-  const all = junctionChainage.get(post.road);
-  if (!all) return null;
-  const numbered = all.filter((j) => /^J\d/.test(j.jct));
-  if (!numbered.length) return null;
-
-  let at = null, atD = Infinity, lo = null, hi = null;
-  for (const j of numbered) {
-    const d = Math.abs(post.distance - j.km);
-    if (d <= AT_JUNCTION_KM + 1e-9 && d < atD) { at = j; atD = d; }
-    if (j.km < post.distance) lo = j;                 // list is sorted: last one below
-    else if (j.km > post.distance && !hi) hi = j;     // first one above
-  }
-  if (at) return { kind: 'at', label: `At ${at.jct}`, at: at.jct };
-  if (!lo || !hi) return null;
-  const [a, b] = [lo.jct, hi.jct].sort((x, y) => {
+/** Two junction names in numbered order, low to high: ("J14", "J13") -> ["J13", "J14"]. */
+export function junctionPair(a, b) {
+  return [a, b].sort((x, y) => {
     const [nx, sx] = junctionOrder(x), [ny, sy] = junctionOrder(y);
     return nx - ny || (sx < sy ? -1 : sx > sy ? 1 : 0);
   });
-  return { kind: 'between', label: `${a} – ${b}`, from: a, to: b };
 }
+
+const JUNCTION_NAME = /^J\d+[A-Z]?$/;
+
+/**
+ * The junction section a mainline post sits in, as National Highways' own
+ * record of that stretch of carriageway describes it. "between J4 and J5"
+ * gives { kind: 'between', label: 'J4 – J5' }; "within J5" gives
+ * { kind: 'within', label: 'Within J5' }.
+ *
+ * `sections` is the table made by scripts/post-sections.mjs from the network
+ * snapshot (data/post-sections.json in a build). A post that is not in it gets
+ * null and the screen shows no section: slip and link letters, interchange
+ * posts, A-roads (their records name the crossing roads, not numbered
+ * junctions), and any post the records could not be matched to with
+ * confidence. Nothing here is worked out from distances, and the two
+ * carriageways can differ at the same reference, because their slip roads are
+ * not opposite each other.
+ */
+export function junctionSection(post, sections) {
+  if (!post || post.link || !MAINLINE.has(post.direction)) return null;
+  const entry = sections?.roads?.[post.road]?.[post.ref];
+  if (!Array.isArray(entry) || !entry.every((name) => JUNCTION_NAME.test(name))) return null;
+  if (entry.length === 1) return { kind: 'within', label: `Within ${entry[0]}`, at: entry[0] };
+  if (entry.length !== 2 || entry[0] === entry[1]) return null;
+  const [from, to] = junctionPair(entry[0], entry[1]);
+  return { kind: 'between', label: `${from} – ${to}`, from, to };
+}
+
+/**
+ * How long (ms) a position stays current without a new fix. After this it is
+ * the "last known" position and every screen must say so: 15 s when moving,
+ * 30 s when the speed is not known, 2 minutes when standing still.
+ */
+export const staleAfterMs = (speed) =>
+  (speed == null || Number.isNaN(speed) ? 30000 : speed > HEADING_MIN_SPEED ? 15000 : 120000);
 
 /** "38 m", "1.24 km", "12.4 km". */
 export const fmtDist = (m) =>

@@ -75,6 +75,14 @@ for (const dir of ASSET_DIRS) {
 }
 if (target === 'pwa') for (const rel of PWA_ONLY) await copy(rel);
 
+// Junction sections: each mainline post matched to National Highways' own
+// description of its stretch of carriageway. Made here, from the data being
+// published, so it cannot be out of step with it. Not kept in the repository.
+const { buildFromData, countSections } = await import('./post-sections.mjs');
+const sections = await buildFromData(new URL('..', import.meta.url));
+await writeFile(join(OUT, 'data', 'post-sections.json'), `${JSON.stringify(sections)}\n`);
+const sectionCount = countSections(sections);
+
 let basemapNote = 'not present: the map will show the road network without a street background';
 if (existsSync(join(ROOT, BASEMAP))) {
   await copy(BASEMAP);
@@ -144,3 +152,4 @@ if (target === 'pwa') {
 const total = (await Promise.all((await walk(OUT)).map(async (f) => (await stat(f)).size))).reduce((a, b) => a + b, 0);
 console.log(`Built ${target} -> ${relative(ROOT, OUT) || '.'}  (${(await walk(OUT)).length} files, ${(total / 1048576).toFixed(1)} MB, build ${build})`);
 console.log(`  vehicle lookup: ${config.features.vehicle ? 'on' : 'off'}   base map archive: ${basemapNote}`);
+console.log(`  junction sections from the records: ${sectionCount.between + sectionCount.within} posts`);

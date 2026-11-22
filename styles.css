@@ -77,7 +77,6 @@
     --warn-bg: #3A2B07;
     --warn-text: #FFD98A;
     --bad: #FF6B6B;
-  --on-bad: #1A1200;
     --on-bad: #1A1200;
     --you: #0A84FF;
     --scrim: rgba(18, 27, 46, 0.88);
@@ -106,6 +105,7 @@
   --warn-bg: #3A2B07;
   --warn-text: #FFD98A;
   --bad: #FF6B6B;
+  --on-bad: #1A1200;
   --you: #0A84FF;
   --scrim: rgba(18, 27, 46, 0.88);
   --backdrop: rgba(0, 0, 0, 0.55);
@@ -282,6 +282,8 @@ a { color: var(--accent-text); }
   display: flex; align-items: center; justify-content: center; flex: none;
   width: 44px; height: 44px; margin: -7px -12px -7px 0; border-radius: 22px; color: var(--text-2);
 }
+.np-about { position: relative; }
+.np-about::after { content: ""; position: absolute; inset: -2px; }
 .np-about svg { width: 20px; height: 20px; }
 .np-about:active { background: var(--fill); }
 

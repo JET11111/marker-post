@@ -48,6 +48,8 @@
   background: var(--surface); box-shadow: var(--shadow-float); color: var(--text-2);
   font-size: 13px; font-weight: 600; white-space: nowrap;
 }
+/* The pill is 32 px tall; the area that answers a tap is 48 px. */
+.map-data-pill::after { content: ""; position: absolute; inset: -8px 0; }
 .map-data-pill span { overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- search results ---------- */
@@ -119,7 +121,7 @@
 .map-row b.accent { color: var(--accent-text); }
 .map-row b.unknown { color: var(--text-2); }
 button.map-row:active { background: var(--fill); }
-.map-record-notes summary { display: flex; align-items: center; min-height: 46px; font-size: 15px; font-weight: 600; color: var(--text-2); cursor: pointer; }
+.map-record-notes summary { display: flex; align-items: center; min-height: 48px; font-size: 15px; font-weight: 600; color: var(--text-2); cursor: pointer; }
 .map-record-notes .callout { margin: 8px 0; }
 .map-record-notes .btn { margin-top: 8px; }
 
