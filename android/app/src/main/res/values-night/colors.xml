@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The same values as the page (styles.css): -bg and -accent, dark theme. -->
+    <color name="mp_background">#000000</color>
+    <color name="mp_accent">#FFC23D</color>
+</resources>

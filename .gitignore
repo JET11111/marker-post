@@ -15,3 +15,9 @@ tiles/
 keystore.properties
 .env
 .env.*
+
+# Generated native data (scripts/build-native-data.mjs)
+native/marker-post-plugin/ios/Sources/MarkerPostCore/Resources/posts.tsv
+native/marker-post-plugin/ios/Tests/MarkerPostCoreTests/Resources/
+native/marker-post-plugin/android/src/main/assets/markerpost/
+native/marker-post-plugin/android/src/test/resources/

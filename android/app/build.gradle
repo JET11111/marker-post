@@ -1,0 +1,103 @@
+apply plugin: 'com.android.application'
+
+// One version number for every platform: the one in package.json.
+// The build number comes from the CI run (MP_VERSION_CODE), so each build
+// installs over the one before it.
+def packageJson = new groovy.json.JsonSlurper().parse(file('../../package.json'))
+def buildNumber = (System.getenv('MP_VERSION_CODE') ?: '1') as Integer
+
+// Signing. The keystore and its passwords are never in the repository: on your
+// own computer they come from android/keystore.properties (git-ignored), on CI
+// from environment variables filled from GitHub secrets. Without them the
+// debug build is signed with the machine's throwaway debug key and the release
+// build is left unsigned. See docs/android-app.md.
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file('keystore.properties')
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def signingValue = { String envName, String propName ->
+    System.getenv(envName) ?: keystoreProps.getProperty(propName)
+}
+def hasOwnSigning = ['MP_KEYSTORE_FILE': 'storeFile', 'MP_KEYSTORE_PASSWORD': 'storePassword',
+                     'MP_KEY_ALIAS': 'keyAlias', 'MP_KEY_PASSWORD': 'keyPassword']
+        .every { envName, propName -> signingValue(envName, propName) }
+
+android {
+    namespace = "io.github.jet11111.markerpost"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "io.github.jet11111.markerpost"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode buildNumber
+        versionName packageJson.version
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    androidResources {
+        // The street map archive is read a few kilobytes at a time. Stored
+        // uncompressed, the app can jump straight to the bytes it needs
+        // instead of unpacking the file from the start on every read.
+        noCompress.add('pmtiles')
+    }
+    signingConfigs {
+        if (hasOwnSigning) {
+            own {
+                storeFile rootProject.file(signingValue('MP_KEYSTORE_FILE', 'storeFile'))
+                storePassword signingValue('MP_KEYSTORE_PASSWORD', 'storePassword')
+                keyAlias signingValue('MP_KEY_ALIAS', 'keyAlias')
+                keyPassword signingValue('MP_KEY_PASSWORD', 'keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            // With your own key, a debug build installs over the previous one
+            // (and over a release build) instead of asking you to uninstall first.
+            if (hasOwnSigning) {
+                signingConfig signingConfigs.own
+            }
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasOwnSigning) {
+                signingConfig signingConfigs.own
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

@@ -1,0 +1,28 @@
+# Keep line endings stable between Windows and the CI machines.
+* text=auto
+# The native projects must be LF everywhere: Capacitor's migration tools match lines exactly.
+android/** text=auto eol=lf
+ios/** text=auto eol=lf
+native/** text=auto eol=lf
+*.sh text eol=lf
+gradlew text eol=lf
+*.gradle text eol=lf
+*.pbxproj text eol=lf
+*.xcscheme text eol=lf
+*.plist text eol=lf
+*.entitlements text eol=lf
+*.swift text eol=lf
+*.kt text eol=lf
+*.java text eol=lf
+*.rb text eol=lf
+Fastfile text eol=lf
+Appfile text eol=lf
+Matchfile text eol=lf
+Gemfile text eol=lf
+*.yml text eol=lf
+*.tsv text eol=lf
+*.bat text eol=crlf
+*.png binary
+*.pbf binary
+*.pmtiles binary
+*.jar binary

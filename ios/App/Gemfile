@@ -1,0 +1,6 @@
+source "https://rubygems.org"
+
+# fastlane builds, signs and uploads the iPhone app from GitHub Actions.
+# The exact version is pinned here and in Gemfile.lock, so the job that holds
+# the signing secrets always runs the same code.
+gem "fastlane", "2.242.0"

@@ -1,0 +1,168 @@
+# Builds the Android app: lookup tests, a debug APK to sideload and a release APK.
+#
+# Works with no secrets at all. With the four MP_* signing secrets (see
+# docs/android-app.md) both APKs are signed with your own key, so each new
+# build installs over the last one.
+name: android
+
+on:
+  push:
+    branches: [master, 'feature/**']
+    paths:
+      - 'android/**'
+      - 'native/**'
+      - 'core/**'
+      - 'vendor/**'
+      - 'scripts/**'
+      - '*.js'
+      - '*.css'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - '.github/actions/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'native/**'
+      - 'core/**'
+      - 'vendor/**'
+      - 'scripts/**'
+      - '*.js'
+      - '*.css'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - '.github/actions/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Also attach the APK to a GitHub pre-release (a public download link you can open on the phone)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.names.outputs.version }}
+      signed: ${{ steps.keystore.outputs.signed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Install the Capacitor tools
+        run: npm ci --ignore-scripts
+      - uses: ./.github/actions/basemap
+        with:
+          required: "true"
+      - name: Build the web app and the lookup data for the phone
+        run: npm run build:native
+      - name: Copy it into the Android project
+        run: npx cap sync android
+
+      - name: Lookup tests (same answers as the web app)
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew :marker-post-native:testDebugUnitTest --console=plain
+
+      - name: Signing key (only when the repository has one)
+        id: keystore
+        env:
+          MP_KEYSTORE_BASE64: ${{ secrets.MP_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$MP_KEYSTORE_BASE64" ]; then
+            printf '%s' "$MP_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/markerpost.keystore"
+            echo "path=$RUNNER_TEMP/markerpost.keystore" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No signing key in the repository secrets. The debug APK is signed with a throwaway key (uninstall the app before installing a newer build) and the release APK is unsigned. See docs/android-app.md."
+          fi
+
+      - name: Build the debug and release APKs
+        working-directory: android
+        env:
+          MP_VERSION_CODE: ${{ github.run_number }}
+          MP_KEYSTORE_FILE: ${{ steps.keystore.outputs.path }}
+          MP_KEYSTORE_PASSWORD: ${{ secrets.MP_KEYSTORE_PASSWORD }}
+          MP_KEY_ALIAS: ${{ secrets.MP_KEY_ALIAS }}
+          MP_KEY_PASSWORD: ${{ secrets.MP_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --console=plain
+
+      - name: Name the files
+        id: names
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          name="marker-post-$version-build${{ github.run_number }}"
+          mkdir -p apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk "apk/$name-debug.apk"
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk "apk/$name.apk"
+          fi
+          ls -l apk
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: marker-post-android
+          path: apk/*.apk
+          if-no-files-found: error
+          retention-days: 30
+      - name: Keep the reports when something failed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-reports
+          path: |
+            native/marker-post-plugin/android/build/reports
+            android/app/build/reports
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    # Only when you tick the box on a manual run: makes a public download link.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: marker-post-android
+          path: apk
+      - name: Create the pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: android-${{ needs.build.outputs.version }}-build${{ github.run_number }}
+          SIGNED: ${{ needs.build.outputs.signed }}
+        run: |
+          note="Android build ${{ github.run_number }} of Marker Post ${{ needs.build.outputs.version }}, from ${{ github.sha }}."
+          if [ "$SIGNED" != "true" ]; then
+            note="$note Signed with a throwaway key: uninstall the app before installing a newer build."
+          fi
+          gh release create "$TAG" apk/*.apk --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --prerelease --title "Marker Post for Android, build ${{ github.run_number }}" --notes "$note"

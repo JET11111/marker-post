@@ -101,6 +101,24 @@ function baseLayers(dark, source) {
   let json = JSON.stringify(generated);
   for (const [name, folder] of Object.entries(FONT_FOLDERS)) json = json.replaceAll(`"${name}"`, `"${folder}"`);
   const layers = JSON.parse(json);
+  // Road numbers. In these tiles UK roads carry a `ref` but not the
+  // `shield_text` the stock style draws, so read `ref` directly. From zoom 12
+  // up; below that the network's own shields (map.js) label the main roads.
+  layers.push({
+    id: 'roads_ref', type: 'symbol', source, 'source-layer': 'roads', minzoom: 12,
+    filter: ['all',
+      ['in', ['get', 'kind'], ['literal', ['highway', 'major_road']]],
+      ['has', 'ref'], ['!', ['has', 'shield_text']],
+      ['<=', ['length', ['get', 'ref']], 5]],
+    layout: {
+      'symbol-placement': 'line', 'symbol-spacing': 260,
+      'icon-image': ['concat', 'generic_shield-', ['to-string', ['length', ['get', 'ref']]], 'char'],
+      'text-field': ['get', 'ref'], 'text-font': ['NotoSans-Medium'], 'text-size': 10,
+      'icon-rotation-alignment': 'viewport', 'text-rotation-alignment': 'viewport',
+      'icon-pitch-alignment': 'viewport', 'text-pitch-alignment': 'viewport',
+    },
+    paint: { 'text-color': dark ? '#C9CDD3' : '#4A463F' },
+  });
   // Restrained depth: building blocks rise slightly when zoomed right in.
   const firstLabel = layers.findIndex((l) => l.type === 'symbol');
   layers.splice(firstLabel < 0 ? layers.length : firstLabel, 0, {

@@ -31,7 +31,8 @@
     "@capacitor/geolocation": "^8.2.5",
     "@capacitor/haptics": "^8.0.2",
     "@capacitor/ios": "^8.6.2",
-    "@capacitor/splash-screen": "^8.0.2"
+    "@capacitor/splash-screen": "^8.0.2",
+    "marker-post-native": "file:native/marker-post-plugin"
   },
   "devDependencies": {
     "@capacitor/assets": "^4.0.0",

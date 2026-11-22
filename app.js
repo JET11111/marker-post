@@ -7,6 +7,7 @@ import * as P from './platform.js';
 import { loadBundled, loadSnapshot } from './data.js';
 import { onThemeChange, setTheme, themeChoice } from './theme.js';
 import { el, h, setText, show } from './dom.js';
+import * as diagnostics from './diagnostics.js';
 import { haversine } from './core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, nearestERA,
@@ -132,6 +133,23 @@ function carriagewayConfirmed(post, headingUsed, pos) {
 
 const clock = (ms) => new Date(ms).toLocaleTimeString('en-GB');
 
+// Hand the post on screen to the native apps' widgets: when it changes, and
+// otherwise every 15 seconds so their "last updated" time stays honest.
+const ROAD_CLASS_CODE = { motorway: 'M', 'a-road': 'A', other: 'O' };
+let publishedKey = '', publishedAt = 0;
+function publishPost(post, context, confirmed) {
+  if (!P.isNative) return;
+  const key = `${post.road}|${post.ref}|${context}|${confirmed}`, now = Date.now();
+  if (key === publishedKey && now - publishedAt < 15000) return;
+  publishedKey = key; publishedAt = now;
+  const parts = parseRef(post.ref);
+  P.publishPost({
+    road: roadLabel(post.road), roadClass: ROAD_CLASS_CODE[roadClass(post.road)],
+    km: parts ? parts.km : '', letter: parts ? parts.letter : '', ref: post.ref,
+    context, confirmed, fixTime: lastFixAt,
+  });
+}
+
 function renderNearest() {
   const p = lastPos;
   if (!p || !POSTS.length) return;
@@ -189,6 +207,7 @@ function renderNearest() {
     show(eraRow, false);
   }
   setText(el('np-meta'), `Updated ${clock(lastFixAt)}`);
+  publishPost(post, sectionEl.textContent, confirmed);
 }
 
 // GPS quality: green = trust it, amber = marginal, red = poor/unknown.
@@ -674,7 +693,10 @@ function openNetworkMap(post) {
   networkMapPromise.then((map) => {
     map.show();
     if (post) map.selectPost(post);
-  }).catch((err) => console.error('Map:', err));
+  }).catch((err) => {
+    console.error('Map:', err);
+    diagnostics.note('error', `Map failed to open: ${err?.message || err}`);
+  });
 }
 
 function switchView(view, { announce = true } = {}) {
@@ -709,7 +731,19 @@ function initSheets() {
     if (closer) { closer.closest('dialog')?.close(); return; }
     if (e.target instanceof HTMLDialogElement && e.target.classList.contains('sheet')) e.target.close();
   });
-  el('open-about').addEventListener('click', () => el('about-sheet').showModal());
+  el('open-about').addEventListener('click', () => { paintDiagnostics(); el('about-sheet').showModal(); });
+  el('diag-copy').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(diagnostics.report()); toast('Diagnostics copied.'); }
+    catch { toast('Copy is unavailable here.'); }
+  });
+  diagnostics.onChange(() => { if (el('about-sheet').open) paintDiagnostics(); });
+}
+
+function paintDiagnostics() {
+  const n = diagnostics.problemCount();
+  setText(el('diag-summary'), n
+    ? `${n} problem${n === 1 ? '' : 's'} recorded since the app opened. Copying includes the app version and device type, never your position.`
+    : 'No problems recorded since the app opened.');
 }
 
 // ---------- appearance ----------
@@ -808,6 +842,7 @@ async function init() {
     await loadData();
   } catch (e) {
     console.error('Post data:', e);
+    diagnostics.note('error', `Post data failed to load: ${e?.message || e}`);
     setGps('err', 'No data');
     el('hero').dataset.state = 'error';
     setText(el('np-sub'), 'Failed to load post data.');

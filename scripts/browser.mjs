@@ -11,11 +11,11 @@
 //
 // Used by scripts/screenshots.mjs. It never touches your normal Chrome profile.
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 const CANDIDATES = [
   process.env.CHROME_PATH,
@@ -47,9 +47,24 @@ export async function launch({ port = 9333 + Math.floor(Math.random() * 500), he
   for (let i = 0; i < 100 && !version; i++) {
     try { version = await (await fetch(`${base}/json/version`)).json(); } catch { await sleep(100); }
   }
-  if (!version) { child.kill(); throw new Error('Chrome did not start its debugging port.'); }
+  // Chrome is a family of processes, and on Windows ending the one that was
+  // started can leave the rest running for good. So: end every browser process
+  // that was started with this throwaway profile (it is named on each one's
+  // command line), which can never match your own Chrome.
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    try { child.kill(); } catch { /* already gone */ }
+    if (process.platform !== 'win32') return;
+    const marker = basename(profile).replace(/'/g, "''");
+    spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${marker}*' -and $_.Name -match '^(chrome|msedge)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
+    ], { stdio: 'ignore', timeout: 20000 });
+  };
+  if (!version) { stop(); throw new Error('Chrome did not start its debugging port.'); }
   // Never leave the throwaway browser running if the script stops early.
-  process.once('exit', () => { try { child.kill(); } catch { /* already gone */ } });
+  process.once('exit', stop);
 
   const pages = [];
   return {
@@ -65,10 +80,10 @@ export async function launch({ port = 9333 + Math.floor(Math.random() * 500), he
       return p;
     },
     async close() {
-      for (const p of pages) p.socket.close();
-      child.kill();
+      for (const p of pages) { try { p.socket.close(); } catch { /* already closed */ } }
+      stop();
       await sleep(300);
-      await rm(profile, { recursive: true, force: true }).catch(() => {});
+      await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
     },
   };
 }
@@ -139,9 +154,14 @@ function connect(url) {
         }
         await sleep(80);
       },
-      async screenshot(file, { fullPage = false } = {}) {
+      /** file: where to save the PNG (omit to get the bytes back). transparent: keep the page background see-through. */
+      async screenshot(file, { fullPage = false, transparent = false } = {}) {
+        if (transparent) await page.send('Emulation.setDefaultBackgroundColorOverride', { color: { r: 0, g: 0, b: 0, a: 0 } });
         const r = await page.send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: fullPage });
-        await writeFile(file, Buffer.from(r.data, 'base64'));
+        if (transparent) await page.send('Emulation.setDefaultBackgroundColorOverride');
+        const bytes = Buffer.from(r.data, 'base64');
+        if (!file) return bytes;
+        await writeFile(file, bytes);
         return file;
       },
       wait: sleep,

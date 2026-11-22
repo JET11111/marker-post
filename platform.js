@@ -99,7 +99,41 @@ export function watchPosition(onFix, onError) {
 
 function watchNative(onFix, onError) {
   const Geo = plugin('Geolocation');
-  let stopped = false, watchId = null;
+  let stopped = false, watchId = null, retry = null;
+  const clear = () => {
+    if (watchId != null) { Geo.clearWatch({ id: watchId }).catch(() => {}); watchId = null; }
+  };
+  // The plugin ends a watch when it reports certain errors (a first fix that
+  // takes too long, for example starting in a garage). Start it again shortly
+  // afterwards so the readout recovers by itself.
+  const restartSoon = () => {
+    if (stopped || retry) return;
+    clear();
+    retry = setTimeout(() => { retry = null; start(); }, 3000);
+  };
+  async function start() {
+    if (stopped) return;
+    try {
+      // `interval` defaults to `timeout` on Android, so it must be set or
+      // fixes would arrive only once a minute.
+      watchId = await Geo.watchPosition(
+        { ...WATCH_OPTIONS, timeout: 60000, interval: 1000, minimumUpdateInterval: 1000 },
+        (pos, err) => {
+          if (stopped) return;
+          if (err || !pos) {
+            onError({ code: 2, message: String(err?.message || err || 'No position') });
+            restartSoon();
+            return;
+          }
+          onFix(toFix(pos.coords, pos.timestamp, true));
+        },
+      );
+      if (stopped) clear();
+    } catch (e) {
+      onError({ code: 2, message: String(e?.message || e) });
+      restartSoon();
+    }
+  }
   (async () => {
     try {
       let perm = await Geo.checkPermissions();
@@ -110,26 +144,12 @@ function watchNative(onFix, onError) {
       onError({ code: 2, message: String(e?.message || e) });
       return;
     }
-    if (stopped) return;
-    try {
-      // `interval` defaults to `timeout` on Android, so it must be set or
-      // fixes would arrive every 30 seconds.
-      watchId = await Geo.watchPosition(
-        { ...WATCH_OPTIONS, interval: 1000, minimumUpdateInterval: 500 },
-        (pos, err) => {
-          if (stopped) return;
-          if (err || !pos) { onError({ code: 2, message: String(err?.message || err || 'No position') }); return; }
-          onFix(toFix(pos.coords, pos.timestamp, true));
-        },
-      );
-      if (stopped && watchId != null) Geo.clearWatch({ id: watchId });
-    } catch (e) {
-      onError({ code: 2, message: String(e?.message || e) });
-    }
+    start();
   })();
   return () => {
     stopped = true;
-    if (watchId != null) Geo.clearWatch({ id: watchId }).catch(() => {});
+    clearTimeout(retry);
+    clear();
   };
 }
 
@@ -240,6 +260,18 @@ export async function getJson(url, { timeoutMs = 10000, cache } = {}) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// --------------------------------------------------------- last known post
+
+/**
+ * Hand the post on screen to the native side, so the home screen widgets have
+ * a "last known" value even when live tracking has never been started. The
+ * native side ignores it while live tracking is running. Never throws.
+ */
+export function publishPost(snapshot) {
+  if (!isNative) return;
+  try { plugin('MarkerPost').publishPost(snapshot).catch(() => {}); } catch { /* plugin missing */ }
 }
 
 // ------------------------------------------------------------ live tracking

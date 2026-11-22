@@ -1,0 +1,107 @@
+# Builds the iPhone app on a GitHub Mac, signs it and uploads it to TestFlight.
+# One-off setup (Apple Developer account, API key, secrets): docs/ios-testflight.md.
+#
+# It runs when you:
+#   * press "Run workflow" on the Actions page (tick "bootstrap" the first time);
+#   * push a version tag, for example  git tag v2.0.0 && git push origin v2.0.0
+#   * and on the 1st of each month, because TestFlight builds expire after 90 days.
+# Until the setup is done (no MATCH_GIT_URL variable) every run is skipped.
+#
+# The repository is public, so its logs are too. Secrets are masked, no build
+# output or signing file is kept as an artifact, and nothing is run verbosely.
+name: ios-testflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      bootstrap_signing:
+        description: Create or renew the signing certificate and profiles (first run, after changing an App ID, and once a year)
+        type: boolean
+        default: false
+  push:
+    tags: ['v*.*.*']
+    # A push that changes this file on a working branch runs nothing (see the
+    # job condition). It only makes the workflow known to GitHub, so that it
+    # can be started on that branch before the branch is merged.
+    branches: ['feature/**']
+    paths: ['.github/workflows/ios-testflight.yml']
+  schedule:
+    - cron: '23 6 1 * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    if: vars.MATCH_GIT_URL != '' && (github.event_name != 'push' || github.ref_type == 'tag')
+    runs-on: macos-26
+    timeout-minutes: 75
+    # Secrets live in this environment. Give it a required reviewer (yourself)
+    # and nothing is signed or uploaded until you approve the run.
+    environment: testflight
+    env:
+      LC_ALL: en_US.UTF-8
+      LANG: en_US.UTF-8
+      FASTLANE_SKIP_UPDATE_CHECK: "1"
+      FASTLANE_OPT_OUT_USAGE: "YES"
+      FASTLANE_HIDE_CHANGELOG: "1"
+      FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "120"
+      FASTLANE_XCODEBUILD_SETTINGS_RETRIES: "4"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Use the newest Xcode 26
+        run: |
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -viE 'beta|candidate' | sort -V | tail -n 1)"
+          if [ -n "$xcode" ]; then echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"; fi
+
+      - name: Install the Capacitor tools
+        run: npm ci --ignore-scripts
+      - uses: ./.github/actions/basemap
+        with:
+          required: "true"
+      - name: Build the web app and the lookup data for the phone
+        run: npm run build:native
+      - name: Copy it into the Xcode project
+        run: npx cap sync ios
+      - name: The Xcode project lists every source file
+        run: node scripts/ios-project.mjs --check
+
+      - uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+          working-directory: ios/App
+
+      - name: Sign, build and upload
+        working-directory: ios/App
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          MATCH_GIT_TOKEN: ${{ secrets.MATCH_GIT_TOKEN }}
+          MATCH_GIT_URL: ${{ vars.MATCH_GIT_URL }}
+          BOOTSTRAP_SIGNING: ${{ inputs.bootstrap_signing || 'false' }}
+          # Not used by the build. Naming them here makes GitHub blank them out
+          # wherever fastlane prints the certificate and profile details.
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_TEAM_NAME: ${{ secrets.APPLE_TEAM_NAME }}
+        run: bundle exec fastlane ios beta
+
+      - name: Remove the signing material
+        if: always()
+        run: |
+          security delete-keychain fastlane_tmp_keychain-db || true
+          rm -rf "$HOME/Library/MobileDevice/Provisioning Profiles" \
+                 "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles" \
+                 "$HOME/.appstoreconnect/private_keys" || true

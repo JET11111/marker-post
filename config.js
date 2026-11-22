@@ -31,9 +31,8 @@ export default {
   map: {
     /** Vector base map. See map-style.js for how these are used. */
     basemap: {
-      provider: 'openfreemap',
-      tiles: 'https://tiles.openfreemap.org/planet',
-      attribution: '© OpenStreetMap contributors · OpenFreeMap © OpenMapTiles',
+      provider: 'protomaps',
+      attribution: '© OpenStreetMap contributors · Protomaps',
     },
   },
 };

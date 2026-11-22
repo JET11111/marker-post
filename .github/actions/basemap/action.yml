@@ -1,0 +1,40 @@
+name: Street map archive
+description: >
+  Put tiles/basemap.pmtiles in place: the offline street map for the patch, cut
+  from a Protomaps build of OpenStreetMap. It is kept in the Actions cache and
+  cut afresh once a month, so most runs take a few seconds.
+inputs:
+  required:
+    description: Fail the job when no archive can be produced ("true" for the phone apps, which bundle it)
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - id: month
+      shell: bash
+      run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+    - id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: tiles/basemap.pmtiles
+        key: basemap-${{ hashFiles('scripts/fetch-basemap.mjs') }}-${{ steps.month.outputs.month }}
+        # An older copy is better than none if this month's cannot be cut.
+        restore-keys: |
+          basemap-${{ hashFiles('scripts/fetch-basemap.mjs') }}-
+    - name: Cut the archive
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        REQUIRED: ${{ inputs.required }}
+      run: |
+        if node scripts/fetch-basemap.mjs; then
+          exit 0
+        fi
+        if [ -f tiles/basemap.pmtiles ]; then
+          echo "::warning::The street map could not be refreshed. Using the previous copy."
+        elif [ "$REQUIRED" = "true" ]; then
+          echo "::error::The street map could not be produced, and this build needs it."
+          exit 1
+        else
+          echo "::warning::No street map this time: the map will show the road network on a plain background."
+        fi

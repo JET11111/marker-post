@@ -13,6 +13,7 @@ import { isDark, onThemeChange, setTheme, themeChoice } from './theme.js';
 import { h, icon, ICONS, show } from './dom.js';
 import { buildStyle, PALETTE, FONT } from './map-style.js';
 import { openBasemap, offlineBasemap, BASEMAP_ATTRIBUTION } from './basemap.js';
+import * as diagnostics from './diagnostics.js';
 
 const $ = (id) => document.getElementById(id);
 const normalRoad = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -233,6 +234,8 @@ class NetworkMap {
     map.on('pitch', () => this.paintCompass());
     // Without this handler MapLibre prints its own errors; with it, they are ours to report.
     map.on('error', (e) => this.onMapError(e));
+    map.on('webglcontextlost', () => diagnostics.count('graphics-context-lost'));
+    map.on('webglcontextrestored', () => diagnostics.count('graphics-context-restored'));
   }
 
   // ------------------------------------------------------------------ start
@@ -245,7 +248,7 @@ class NetworkMap {
         container: 'network-map',
         style: this.style(),
         center: [-1.32, 51.025], zoom: ZOOM.start, minZoom: ZOOM.min, maxZoom: ZOOM.max,
-        maxBounds: [[-3.5, 49.9], [0.5, 52.2]],
+        maxBounds: [[-2.9, 50.2], [0.2, 51.9]],
         maxPitch: 50,
         renderWorldCopies: false,
         pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
@@ -271,7 +274,10 @@ class NetworkMap {
     this.bind();
     this.paintAttribution();
     this.paintCompass();
-    if (!this.basemap.available) this.toast('Street background unavailable. Network records remain visible.');
+    if (!this.basemap.available) {
+      this.toast('Street background unavailable. Network records remain visible.');
+      diagnostics.note('warn', `Street map unavailable: ${this.basemap.reason || 'no archive'}`);
+    }
     await this.load();
   }
 
@@ -290,6 +296,7 @@ class NetworkMap {
     // A tile the archive does not hold is normal (detail is only kept near the network).
     if (/tile|404|aborted|AbortError/i.test(message)) return;
     console.error('Map:', e?.error || e);
+    diagnostics.note('error', `Map: ${message || 'unknown error'}`);
   }
 
   // --------------------------------------------------------- overlay layers

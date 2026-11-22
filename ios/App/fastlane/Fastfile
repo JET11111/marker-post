@@ -1,0 +1,132 @@
+# Builds, signs and uploads the iPhone app to TestFlight. Run by
+# .github/workflows/ios-testflight.yml on a GitHub macOS machine; there is no
+# need for a Mac of your own. docs/ios-testflight.md explains the one-off setup.
+#
+# Signing uses fastlane "match": one Apple Distribution certificate and two
+# App Store profiles (app + widget extension), kept encrypted in a private git
+# repository. A "bootstrap" run creates them once; every later run only reads.
+#
+# Nothing secret is written in this file. Everything comes from the
+# environment, which the workflow fills from GitHub secrets.
+
+require "base64"
+require "json"
+
+default_platform(:ios)
+
+PROJECT       = "App.xcodeproj"
+SCHEME        = "App"
+APP_TARGET    = "App"
+WIDGET_TARGET = "MarkerPostWidgets"
+
+# The repository root: the nearest folder above this one holding capacitor.config.json.
+def repo_root
+  dir = Dir.pwd
+  6.times do
+    return dir if File.exist?(File.join(dir, "capacitor.config.json"))
+    dir = File.dirname(dir)
+  end
+  UI.user_error!("capacitor.config.json not found above #{Dir.pwd}")
+end
+
+platform :ios do
+  desc "Sign with match, build, upload to TestFlight"
+  lane :beta do
+    # One source of truth for the identifiers and the version.
+    app_id    = JSON.parse(File.read(File.join(repo_root, "capacitor.config.json"))).fetch("appId")
+    widget_id = "#{app_id}.widgets"
+    bootstrap = ENV["BOOTSTRAP_SIGNING"].to_s == "true"
+
+    # A temporary keychain for the certificate, removed with the machine.
+    setup_ci
+
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("ASC_KEY_ID"),
+      issuer_id: ENV.fetch("ASC_ISSUER_ID"),
+      key_content: ENV.fetch("ASC_KEY_P8_BASE64"),
+      is_key_content_base64: true,
+      duration: 1200,
+      in_house: false
+    )
+
+    git_user = ENV["MATCH_GIT_USER"].to_s.empty? ? ENV.fetch("GITHUB_REPOSITORY_OWNER") : ENV["MATCH_GIT_USER"]
+    match_options = {
+      type: "appstore",
+      platform: "ios",
+      app_identifier: [app_id, widget_id],
+      api_key: api_key,
+      storage_mode: "git",
+      git_url: ENV.fetch("MATCH_GIT_URL"),
+      git_branch: "main",
+      git_basic_authorization: Base64.strict_encode64("#{git_user}:#{ENV.fetch('MATCH_GIT_TOKEN')}"),
+      git_full_name: "ios-ci",
+      git_user_email: "ios-ci@users.noreply.github.com"
+    }
+
+    if bootstrap
+      # First run, after changing a capability, or when the certificate has
+      # expired: create what is missing at Apple and store it encrypted.
+      match(match_options.merge(readonly: false, renew_expired_certs: true))
+    end
+    # The normal path. After a bootstrap it also proves the storage repository
+    # really was updated (match only logs a failed push, it does not stop).
+    match(match_options.merge(readonly: true))
+
+    team_id = ENV.fetch("sigh_#{app_id}_appstore_team-id")
+
+    # Manual signing, one target at a time. Signing settings are not passed on
+    # the command line because those would also hit the Swift package targets.
+    { APP_TARGET => app_id, WIDGET_TARGET => widget_id }.each do |target, bundle_id|
+      update_code_signing_settings(
+        path: PROJECT,
+        use_automatic_signing: false,
+        targets: [target],
+        build_configurations: ["Release"],
+        team_id: team_id,
+        code_sign_identity: "Apple Distribution",
+        profile_name: ENV.fetch("sigh_#{bundle_id}_appstore_profile-name")
+      )
+    end
+
+    # Version: a tag such as v2.1.0 (or v2.1.0-rc.1) wins, otherwise package.json.
+    version = if ENV["GITHUB_REF_TYPE"] == "tag" && ENV["GITHUB_REF_NAME"].to_s =~ /\Av(\d+\.\d+\.\d+)/
+                Regexp.last_match(1)
+              else
+                JSON.parse(File.read(File.join(repo_root, "package.json"))).fetch("version")
+              end
+    build_number = latest_testflight_build_number(
+      api_key: api_key,
+      app_identifier: app_id,
+      initial_build_number: 0
+    ).to_i + 1
+
+    build_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      export_team_id: team_id,
+      export_options: {
+        provisioningProfiles: {
+          app_id    => ENV.fetch("sigh_#{app_id}_appstore_profile-name"),
+          widget_id => ENV.fetch("sigh_#{widget_id}_appstore_profile-name")
+        }
+      },
+      # Apple requires the app and its extension to carry the same version and
+      # build number; setting them here covers both.
+      xcargs: "MARKETING_VERSION=#{version} CURRENT_PROJECT_VERSION=#{build_number}",
+      output_directory: "build",
+      output_name: "MarkerPost"
+    )
+
+    # Internal testers in a group with automatic distribution get the build as
+    # soon as Apple has processed it (usually 5 to 15 minutes).
+    upload_to_testflight(
+      api_key: api_key,
+      app_identifier: app_id,
+      skip_waiting_for_build_processing: true
+    )
+
+    UI.success("Uploaded Marker Post #{version} (#{build_number}) to TestFlight.")
+  end
+end

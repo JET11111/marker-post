@@ -28,7 +28,7 @@ const OUT = join(ROOT, arg('out', 'www'));
 /** App shell: every file the app loads, by name. */
 const SHELL = [
   'index.html', 'styles.css', 'map.css',
-  'app.js', 'platform.js', 'data.js', 'theme.js', 'dom.js',
+  'app.js', 'platform.js', 'data.js', 'theme.js', 'dom.js', 'diagnostics.js',
   'map.js', 'map-details.js', 'map-style.js', 'basemap.js',
   'core/geo.js', 'core/posts.js',
 ];

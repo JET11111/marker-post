@@ -28,6 +28,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # The street map is not in the repository: it is cut from OpenStreetMap
+      # once a month and kept in the Actions cache. The site still deploys
+      # (with a plain map background) if it cannot be produced.
+      - uses: ./.github/actions/basemap
+      # The site that is published is the built copy in www/: only the files the
+      # app needs, with the service worker stamped for this exact build. The web
+      # app has no dependencies, so there is nothing to install first.
+      - name: Build the site
+        run: node scripts/build-web.mjs --target=pwa
       - name: Configure Pages
         # enablement: true turns Pages on for the repo if it isn't already,
         # so no manual Settings toggle is needed.
@@ -37,7 +49,7 @@ jobs:
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          path: www
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

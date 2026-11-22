@@ -19,6 +19,13 @@ export const BASEMAP_ATTRIBUTION = '© OpenStreetMap';
 let libPromise = null;
 function loadPmtiles() {
   if (globalThis.pmtiles) return Promise.resolve(globalThis.pmtiles);
+  // The tile reader calls AbortSignal.throwIfAborted(), which web views older
+  // than Chrome 100 lack. Supplying it keeps the street map working there.
+  if (typeof AbortSignal !== 'undefined' && !AbortSignal.prototype.throwIfAborted) {
+    AbortSignal.prototype.throwIfAborted = function throwIfAborted() {
+      if (this.aborted) throw this.reason ?? new DOMException('Aborted', 'AbortError');
+    };
+  }
   if (!libPromise) {
     libPromise = new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -90,7 +97,10 @@ export async function openBasemap(maplibregl) {
   let lib;
   try { lib = await loadPmtiles(); } catch (e) { return { available: false, reason: String(e.message || e) }; }
   if (!protocol) {
-    protocol = new lib.Protocol();
+    // A tile the archive does not hold must be an error, not an empty tile:
+    // MapLibre then keeps drawing the overview tile it already has, instead
+    // of blanking the map away from the network corridors.
+    protocol = new lib.Protocol({ errorOnMissingTile: true });
     maplibregl.addProtocol('pmtiles', protocol.tile);
   }
   let source, mode;

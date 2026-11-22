@@ -1,0 +1,15 @@
+{
+  "name": "marker-post-native",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Marker Post native features: live tracking (iOS Live Activity, Android ongoing notification), home screen widgets and the native nearest-post lookup. A local Capacitor plugin: 'npx cap sync' links it into both apps.",
+  "license": "UNLICENSED",
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    },
+    "android": {
+      "src": "android"
+    }
+  }
+}

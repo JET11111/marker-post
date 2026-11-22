@@ -1,0 +1,157 @@
+# Checks the iPhone app without an Apple account, a Mac or any secrets:
+#   * the Swift nearest-post lookup gives the same answers as the web app;
+#   * the app, its plugin and the widget / Live Activity extension compile, and
+#     the extension ends up inside the app.
+# Nothing here is signed or uploaded. TestFlight is ios-testflight.yml.
+name: ios
+
+on:
+  push:
+    branches: [master, 'feature/**']
+    paths:
+      - 'ios/**'
+      - 'native/**'
+      - 'core/**'
+      - 'vendor/**'
+      - 'scripts/**'
+      - '*.js'
+      - '*.css'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'native/**'
+      - 'core/**'
+      - 'vendor/**'
+      - 'scripts/**'
+      - '*.js'
+      - '*.css'
+      - 'index.html'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lookup-tests:
+    name: Lookup tests
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Use the newest Xcode 26
+        run: |
+          xcode="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -viE 'beta|candidate' | sort -V | tail -n 1)"
+          if [ -n "$xcode" ]; then echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"; fi
+      - name: Write the post list and the expected answers from the web app's own code
+        run: node scripts/build-native-data.mjs
+      - run: swift --version
+      - name: Run the Swift lookup against every expected answer
+        working-directory: native/marker-post-plugin
+        env:
+          MARKERPOST_CORE_ONLY: "1"
+        run: swift test
+
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    # The Xcode 27 leg is an early warning for April 2027, when Apple will
+    # require it. It is allowed to fail without failing the workflow.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Xcode 26
+            runner: macos-26
+            pick: "26"
+            experimental: false
+          - name: Xcode 27 preview
+            runner: xcode-27
+            pick: ""
+            experimental: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - name: Choose Xcode
+        if: matrix.pick != ''
+        run: |
+          xcode="$(ls -d /Applications/Xcode_${{ matrix.pick }}*.app 2>/dev/null | grep -viE 'beta|candidate' | sort -V | tail -n 1)"
+          if [ -n "$xcode" ]; then echo "DEVELOPER_DIR=$xcode/Contents/Developer" >> "$GITHUB_ENV"; fi
+      - run: xcodebuild -version
+
+      - name: Install the Capacitor tools
+        run: npm ci --ignore-scripts
+      - name: Build the web app and the lookup data for the phone
+        run: npm run build:native
+      - name: Copy it into the Xcode project
+        run: npx cap sync ios
+
+      - name: The Xcode project lists every source file
+        run: node scripts/ios-project.mjs --check
+      - name: One iOS version everywhere
+        run: |
+          grep -n 'platforms' ios/App/CapApp-SPM/Package.swift
+          grep -q 'platforms: \[.iOS(.v18)\]' ios/App/CapApp-SPM/Package.swift
+          grep -q 'MarkerPostNative' ios/App/CapApp-SPM/Package.swift
+
+      - name: Fetch the Swift packages
+        run: xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App
+
+      - name: Build the app and the widget extension for the simulator (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            2>&1 | tee "$RUNNER_TEMP/xcodebuild-simulator.log" | xcbeautify --renderer github-actions
+      - name: The extension is inside the app
+        run: test -d "$RUNNER_TEMP/DerivedData/Build/Products/Debug-iphonesimulator/App.app/PlugIns/MarkerPostWidgets.appex"
+
+      - name: Build for a real iPhone, as a release (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData-device" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            2>&1 | tee "$RUNNER_TEMP/xcodebuild-device.log" | xcbeautify --renderer github-actions
+
+      - name: Keep the build logs when something failed
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: xcodebuild-logs-${{ matrix.pick || 'preview' }}
+          path: ${{ runner.temp }}/xcodebuild-*.log
+          if-no-files-found: ignore
+          retention-days: 7

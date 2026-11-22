@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Written by scripts/make-icons.mjs. Edit the drawing there, not here. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path android:fillColor="#FFFFFF" android:pathData="M50.216,36.889h7.568a2.139,2.139 0 0 1 2.139,2.139v36.855a2.139,2.139 0 0 1 -2.139,2.139h-7.568a2.139,2.139 0 0 1 -2.139,-2.139v-36.855a2.139,2.139 0 0 1 2.139,-2.139z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M41.824,77.034h24.351a0.987,0.987 0 0 1 0.987,0.987a0.987,0.987 0 0 1 -0.987,0.987h-24.351a0.987,0.987 0 0 1 -0.987,-0.987a0.987,0.987 0 0 1 0.987,-0.987z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M47.254,28.991h13.491a2.139,2.139 0 0 1 2.139,2.139v4.607a2.139,2.139 0 0 1 -2.139,2.139h-13.491a2.139,2.139 0 0 1 -2.139,-2.139v-4.607a2.139,2.139 0 0 1 2.139,-2.139z" />
+</vector>

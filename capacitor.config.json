@@ -1,0 +1,20 @@
+{
+  "appId": "io.github.jet11111.markerpost",
+  "appName": "Marker Post",
+  "webDir": "www",
+  "appendUserAgent": " MarkerPost/2.0",
+  "android": {
+    "minWebViewVersion": 100
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css"
+    },
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "launchShowDuration": 300,
+      "launchFadeOutDuration": 150,
+      "showSpinner": false
+    }
+  }
+}

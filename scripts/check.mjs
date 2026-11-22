@@ -8,7 +8,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const APP = ['app.js', 'platform.js', 'data.js', 'theme.js', 'dom.js', 'config.js', 'map.js', 'map-details.js', 'map-style.js', 'basemap.js', 'core/geo.js', 'core/posts.js', 'sw.js'];
+const APP = ['app.js', 'platform.js', 'data.js', 'theme.js', 'dom.js', 'diagnostics.js', 'config.js', 'map.js', 'map-details.js', 'map-style.js', 'basemap.js', 'core/geo.js', 'core/posts.js', 'sw.js'];
 const SCRIPTS = ['scripts/build-web.mjs', 'scripts/serve.mjs', 'scripts/fetch-basemap.mjs', 'scripts/fetch-network.mjs', 'scripts/fetch-vms.mjs', 'scripts/vendor.mjs', 'scripts/browser.mjs'];
 let failed = 0;
 const fail = (message) => { failed++; console.error(`FAIL  ${message}`); };
