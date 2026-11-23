@@ -1,15 +1,18 @@
 #!/usr/bin/env node
-// Static checks: every script parses, every file the app imports exists, and
-// both build targets package cleanly. Run by CI and by "npm run check". Needs
-// "npm install" first: the phone build copies Capacitor's runtime from node_modules.
+// Static checks: every script parses, every file the app imports exists, both
+// build targets package cleanly, and Capacitor copies the phone build and
+// nothing else. Run by CI and by "npm run check". Needs "npm install" first:
+// the phone build copies Capacitor's runtime from node_modules.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUILD_FOLDER } from './guards.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const APP = ['app.js', 'platform.js', 'data.js', 'theme.js', 'dom.js', 'diagnostics.js', 'config.js', 'map.js', 'map-details.js', 'map-style.js', 'basemap.js', 'core/geo.js', 'core/posts.js', 'sw.js'];
-const SCRIPTS = ['scripts/build-web.mjs', 'scripts/serve.mjs', 'scripts/fetch-basemap.mjs', 'scripts/fetch-network.mjs', 'scripts/fetch-vms.mjs', 'scripts/vendor.mjs', 'scripts/browser.mjs'];
+// Every script, including the ones that can only be run on GitHub or by hand.
+const SCRIPTS = readdirSync(join(ROOT, 'scripts')).filter((f) => f.endsWith('.mjs')).sort().map((f) => `scripts/${f}`);
 let failed = 0;
 const fail = (message) => { failed++; console.error(`FAIL  ${message}`); };
 
@@ -35,5 +38,10 @@ for (const target of ['pwa', 'native']) {
 }
 spawnSync(process.execPath, ['-e', "require('fs').rmSync('.build-check',{recursive:true,force:true})"], { cwd: ROOT });
 
+// The phone apps are filled from Capacitor's webDir. It has to be the folder
+// the phone build is written to: any other folder could hold a web build.
+const { webDir } = JSON.parse(readFileSync(join(ROOT, 'capacitor.config.json'), 'utf8'));
+if (webDir !== BUILD_FOLDER.native) fail(`capacitor.config.json: webDir is "${webDir}", but the phone build is written to "${BUILD_FOLDER.native}"`);
+
 if (failed) { console.error(`${failed} check(s) failed`); process.exit(1); }
-console.log(`OK  ${APP.length + SCRIPTS.length} files parse, imports resolve, both targets build`);
+console.log(`OK  ${APP.length + SCRIPTS.length} files parse, imports resolve, both targets build, Capacitor copies ${BUILD_FOLDER.native}/`);

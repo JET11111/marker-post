@@ -1,8 +1,12 @@
 .wrangler/
 node_modules/
 
-# Build output and generated files
+# Build output and generated files: www/ is the web build, www-native/ the
+# phone build (the folder Capacitor copies), .build-check/ is what
+# scripts/check.mjs builds into and removes again
 www/
+www-native/
+.build-check/
 tiles/
 *.tmp
 

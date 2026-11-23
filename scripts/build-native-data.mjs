@@ -32,9 +32,16 @@
 //   lat  lng  heading  speed  useHeading  index  distM  headingUsed  marginM
 //     heading/speed  a number, or the word null (and NaN for heading)
 //     index          line number of the expected post in posts.tsv (0-based)
-//     marginM        how much further the runner-up was; fixtures with a
-//                    margin under a millionth of a metre are ties that
-//                    floating-point libraries may break differently
+//     marginM        how much further the runner-up was. A second post recorded
+//                    at the very same point is not a runner-up: such twins are
+//                    equally far in any maths library, so the choice between
+//                    them is made by the heading and then by file order (the
+//                    first wins), never by rounding. The margin is therefore
+//                    measured to the nearest post that is somewhere else, and
+//                    the native tests hold the lookups to the recorded twin.
+//                    A margin under a millionth of a metre would be a true
+//                    tie, which two libraries may break differently: the tests
+//                    skip the post check for those. The data has none today.
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -42,8 +49,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { haversine, angleDiff } from '../core/geo.js';
 import {
-  computeTravelBearings, findNearest, nearestJunction, junctionLabel, parseRef, roadLabel, roadClass,
-  postContext, fmtDist, headingUsable,
+  computeTravelBearings, findNearest, parseRef, roadLabel, roadClass, postContext, headingUsable,
 } from '../core/posts.js';
 import { buildPostSections } from './post-sections.mjs';
 
@@ -88,8 +94,10 @@ const cases = [];
 const add = (lat, lng, heading, speed, useHeading) => cases.push({ lat, lng, heading, speed, useHeading });
 const find = (road, ref) => posts.find((p) => p.road === road && p.ref === ref);
 
-// Hand-picked: on a post, the opposite carriageway, an interchange, the ends, far away.
-for (const [road, ref] of [['M27', 'P20/9A'], ['M27', 'P20/9B'], ['M27', 'P17/4A'], ['M3', 'P116/4B'], ['A34', 'P13/2A'], ['A3M', 'P3/0A'], ['M271', 'P11/0L'], ['M27', 'P1/7A'], ['M27', 'P46/6A']]) {
+// Hand-picked: on a post, the opposite carriageway, the ends, far away; two
+// posts recorded at one point (A31 20/8 A and B: file order and the heading
+// decide); and an interchange post, which has no travel bearing.
+for (const [road, ref] of [['M27', 'P20/9A'], ['M27', 'P20/9B'], ['M27', 'P17/4A'], ['M3', 'P116/4B'], ['A34', 'P13/2A'], ['A3M', 'P3/0A'], ['M271', 'P11/0L'], ['M27', 'P1/7A'], ['M27', 'P46/6A'], ['A31', 'P20/8A'], ['CHILWORTH', 'P14/7J']]) {
   const p = find(road, ref);
   if (!p) throw new Error(`Fixture post ${road} ${ref} is missing from the data`);
   add(p.lat, p.lng, null, null, true);                                   // no heading at all
@@ -117,7 +125,8 @@ function margin(c, best) {
   const pass = (useFilter) => {
     let second = Infinity;
     for (const p of posts) {
-      if (p === best) continue;
+      // A twin recorded at the same point is not a runner-up: heading and file order decide between them, not rounding.
+      if (p === best || (p.lat === best.lat && p.lng === best.lng)) continue;
       if (useFilter && p.bearing != null && angleDiff(p.bearing, c.heading) > 90) continue;
       const d = haversine(c.lat, c.lng, p.lat, p.lng);
       if (d < second) second = d;
@@ -149,5 +158,6 @@ for (const [rel, text] of outputs) {
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, text);
 }
+// True ties only: twins at one point no longer count (see marginM above).
 const ties = fixtureRows.filter((r) => Number(r.split('\t')[8]) < 1e-6).length;
-console.log(`Native data: ${posts.length} posts (${(postsTsv.length / 1024).toFixed(0)} KB, digest ${digest}), ${cases.length} fixtures (${ties} near-ties)`);
+console.log(`Native data: ${posts.length} posts (${(postsTsv.length / 1024).toFixed(0)} KB, digest ${digest}), ${cases.length} fixtures (${ties} true ties, where the tests do not check the post)`);

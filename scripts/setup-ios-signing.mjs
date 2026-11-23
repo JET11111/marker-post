@@ -14,8 +14,13 @@
 //   4. records the address of the private repository as a repository variable,
 //      which is what switches the ios-testflight workflow on.
 //
-// Nothing is written to this computer and nothing secret is printed. The
-// values go straight to GitHub over the GitHub command-line tool (gh).
+// Nothing is written to this computer. One password is shown once at the end,
+// for you to save; nothing else secret is printed. The values go straight to
+// GitHub over the GitHub command-line tool (gh).
+//
+// Run it in Command Prompt, PowerShell or Windows Terminal. What you paste can
+// only be hidden in a real terminal window, so anywhere else a real run stops
+// before it asks anything. (A dry run carries on, and says it cannot hide.)
 
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -68,6 +73,20 @@ const yes = async (question, byDefault = false) => {
 };
 
 console.log(`Marker Post: setting up TestFlight uploads${DRY ? ' (dry run: nothing will be changed)' : ''}\n`);
+
+// The two secret answers are hidden by silencing the line-reader's own echo.
+// That only works when Node is reading a real terminal. Anywhere else the
+// window itself shows what is pasted, and it would stay on screen. So a real
+// run stops here, before any question. A dry run sends nothing, so it carries
+// on (the answers can then be piped in, to try the script), but it says so.
+const CAN_HIDE = Boolean(process.stdin.isTTY);
+if (!CAN_HIDE && !DRY) {
+  fail('This window cannot hide what you paste, so the token would stay on screen.\n'
+    + 'Run the command in Command Prompt (press Start, type cmd, press Enter). PowerShell and Windows Terminal work too.\n'
+    + 'Nothing was changed.');
+}
+if (!CAN_HIDE) console.log('Note: this window cannot hide what you paste. A dry run sends nothing, but what you paste here stays on screen.\n');
+const UNSEEN = CAN_HIDE ? 'it will not be shown' : 'it WILL be shown: this window cannot hide it';
 
 // ------------------------------------------------------------ where are we
 
@@ -123,7 +142,7 @@ Create it in your browser:
   2. Repository access: "Only select repositories", and pick ${signingRepo}.
   3. Check that Permissions > Repository permissions > Contents says "Read and write". Leave everything else alone.
   4. Press "Generate token" and copy it (it starts with github_pat_).`);
-const token = await ask('  Paste the token here (it will not be shown): ', { secret: true });
+const token = await ask(`  Paste the token here (${UNSEEN}): `, { secret: true });
 if (!/^(github_pat_|ghp_)[A-Za-z0-9_]{20,}$/.test(token)) fail('That does not look like a GitHub token.');
 
 // ------------------------------------------------------ the match password
@@ -138,7 +157,7 @@ let matchPassword = null; // null: leave the stored secret as it is
 if (passwordStored) {
   console.log('\nThe certificate password is already stored on GitHub. It is kept: the certificate can only be read with it.');
 } else if (certificateStored) {
-  matchPassword = await ask('\nThe signing repository already holds a certificate, but its password is not on GitHub.\n  Paste the password you saved as "Marker Post match password" (it will not be shown): ', { secret: true });
+  matchPassword = await ask(`\nThe signing repository already holds a certificate, but its password is not on GitHub.\n  Paste the password you saved as "Marker Post match password" (${UNSEEN}): `, { secret: true });
   if (!matchPassword) fail('Without that password the stored certificate cannot be read.');
 } else {
   matchPassword = randomBytes(24).toString('base64url');

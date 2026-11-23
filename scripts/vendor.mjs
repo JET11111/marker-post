@@ -9,6 +9,11 @@
 // It copies MapLibre GL JS, PMTiles and the Protomaps style package out of
 // node_modules, downloads the map fonts and icon sheets the style needs, and
 // writes vendor/README.md with versions, sources, licences and SHA-256 sums.
+//
+// Only the three packages are pinned. The fonts, icon sheets and four of the
+// licence texts are downloaded from their publishers' sites and from "main"
+// and "master" branches, so a run takes whatever is there that day. Read the
+// diff before committing it. vendor/README.md says the same.
 
 import { createHash } from 'node:crypto';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -94,9 +99,17 @@ const total = records.reduce((a, r) => a + r.bytes, 0);
 const table = records.map((r) => `| \`${r.path}\` | ${r.bytes.toLocaleString('en-GB')} | \`${r.sha256}\` | ${r.source} |`).join('\n');
 await writeFile(join(VENDOR, 'README.md'), `# Third-party files
 
-Everything here is produced by \`node scripts/vendor.mjs\` from the versions
-pinned in \`package.json\`. Do not edit these files by hand: change the pinned
-version, run the script and commit the result.
+Everything here is put in place by \`node scripts/vendor.mjs\`. Do not edit
+these files by hand: run the script and commit the result.
+
+- The MapLibre GL JS, PMTiles and Protomaps basemaps code, and MapLibre's
+  licence text, are copied from the versions pinned in \`package.json\`. To
+  move to a newer one, change the pinned version first.
+- The map fonts, the icon sheets and four licence texts are downloaded from
+  the addresses in the table below, as they stood on the day the script last
+  ran. They are not pinned to a version: a later run takes whatever is
+  published then and rewrites the checksums to match. Read the diff before
+  committing it.
 
 | Library | Version | Licence | Used for |
 | --- | --- | --- | --- |

@@ -12,7 +12,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { launch } from './browser.mjs';
+import { exitOnSignals, launch } from './browser.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const OUT = resolve(process.argv[2] || join(ROOT, 'docs', 'images', 'app'));
@@ -41,6 +41,9 @@ if (build.status !== 0) process.exit(build.status ?? 1);
 const server = spawn(process.execPath, [join(ROOT, 'scripts', 'serve.mjs'), join(ROOT, 'www'), String(PORT)], { stdio: 'ignore' });
 const stopServer = () => { try { server.kill(); } catch { /* already gone */ } };
 process.once('exit', stopServer);
+// Ctrl+C ends Node without that 'exit' event. Make it a normal exit, so the
+// server (and, once it is started, the browser) is stopped then too.
+exitOnSignals();
 
 let up = false;
 for (let i = 0; i < 50 && !up; i++) {

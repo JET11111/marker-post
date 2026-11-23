@@ -10,9 +10,17 @@
 //   await browser.close();
 //
 // Used by scripts/screenshots.mjs. It never touches your normal Chrome profile.
+//
+// The browser it starts is stopped again however the script ends: normally, on
+// an error, or when it is interrupted (Ctrl+C, Ctrl+Break, a closed window).
+// Headless Chrome left running holds hundreds of megabytes each time. On
+// Windows that includes the script being killed outright (Task Manager, a
+// tool's time limit), which no code inside the script can act on: a small
+// hidden stand-by clears up then (standBy below). On macOS and Linux a script
+// killed with "kill -9" still leaves its browser behind.
 
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -28,6 +36,72 @@ const CANDIDATES = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+let signalsHandled = false;
+/**
+ * Ctrl+C, Ctrl+Break, a closed window and a polite request to stop all end
+ * Node WITHOUT its 'exit' event, so nothing registered with
+ * process.once('exit') would run. This turns each of them into a normal exit,
+ * so that clean-up does run. Safe to call more than once.
+ *
+ * It cannot help when Node is killed outright (Task Manager, taskkill /F, a
+ * tool's time limit): no code in the script runs then. On Windows launch()
+ * leaves that case to its stand-by.
+ */
+export function exitOnSignals() {
+  if (signalsHandled) return;
+  signalsHandled = true;
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
+    // "on", not "once": a second, impatient Ctrl+C must not cut the clean-up short.
+    process.on(signal, () => process.exit(130));
+  }
+}
+
+/**
+ * PowerShell that ends every browser process started with this throwaway
+ * profile. The profile is named on each one's command line, so it can never
+ * match your own Chrome.
+ */
+const sweepCommand = (profile) =>
+  `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${basename(profile).replace(/'/g, "''")}*' -and $_.Name -match '^(chrome|msedge)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+
+/**
+ * Windows only. A hidden PowerShell that stands by for as long as the browser
+ * is in use, for the one way out no code in the script can act on: Node being
+ * killed outright. Windows then ends the browser process that was started, but
+ * not the rest of its family.
+ *
+ * It waits for the script to end. If the throwaway profile is still there once
+ * it has, the script's own clean-up did not run or did not finish, so it ends
+ * the family and removes the profile. It ends by itself when the profile has
+ * gone (a normal close) or the script has ended, and while the script is
+ * running it does nothing at all.
+ */
+function standBy(profile) {
+  const system = join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+  const cmd = join(system, 'cmd.exe');
+  const powershell = join(system, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  // The command goes through cmd, which would take a " or a % in a folder's name for its own.
+  if (!existsSync(cmd) || !existsSync(powershell) || /["%]/.test(profile + powershell)) return;
+  const pid = process.pid;
+  const folder = profile.replace(/'/g, "''");
+  const script = [
+    // Wait for the script, looking every two seconds whether the profile has gone.
+    // "Older than me": once the script has ended, Windows may give its number to another program.
+    '$me = (Get-Process -Id $PID).StartTime',
+    `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue`,
+    `if ($p -and $p.StartTime -lt $me) { while (-not $p.WaitForExit(2000)) { if (-not (Test-Path -LiteralPath '${folder}')) { exit } } }`,
+    // Only once the script has really gone: never while it may still be using the browser.
+    `if (-not (Get-Process -Id ${pid} -ErrorAction SilentlyContinue) -and (Test-Path -LiteralPath '${folder}')) { ${sweepCommand(profile)}; Start-Sleep -Seconds 1; Remove-Item -LiteralPath '${folder}' -Recurse -Force -ErrorAction SilentlyContinue }`,
+  ].join('; ');
+  // Started through cmd's "start", so that it is not a child of this script:
+  // on Windows, Node's own children end when Node does, and a tool that stops
+  // the script "and everything it started" would stop the stand-by as well.
+  const starter = spawn(`start "" /b "${powershell}" -NoProfile -NonInteractive -Command "${script}"`,
+    { shell: cmd, stdio: 'ignore', windowsHide: true });
+  starter.on('error', () => { /* no stand-by this time: every other way out is still covered */ });
+  starter.unref();
+}
+
 export async function launch({ port = 9333 + Math.floor(Math.random() * 500), headless = true } = {}) {
   const exe = CANDIDATES.find((p) => existsSync(p));
   if (!exe) throw new Error('Chrome not found. Set CHROME_PATH to a Chrome or Edge executable.');
@@ -42,29 +116,42 @@ export async function launch({ port = 9333 + Math.floor(Math.random() * 500), he
     'about:blank',
   ], { stdio: 'ignore' });
 
+  // Chrome is a family of processes, and on Windows ending the one that was
+  // started can leave the rest running for good. So the whole family is ended:
+  // first through the process that was started, while it is still there to
+  // find the others by; then every browser process that was started with this
+  // throwaway profile (it is named on each one's command line), which can
+  // never match your own Chrome. Everything here is synchronous, because it
+  // also has to work from an 'exit' handler.
+  const windows = process.platform === 'win32';
+  let stopped = false;
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    // Only while Node still holds the process: afterwards Windows may give its number to another program.
+    if (windows && child.pid && child.exitCode === null && child.signalCode === null) {
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 10000, windowsHide: true });
+    }
+    try { child.kill(); } catch { /* already gone */ }
+    if (windows) {
+      spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', sweepCommand(profile)],
+        { stdio: 'ignore', timeout: 20000, windowsHide: true });
+    }
+    // The throwaway profile goes too. A file Windows has not let go of yet is left for the stand-by, or the temp clean-up.
+    try { rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* still in use */ }
+  };
+  // From this line on the browser must not outlive the script, however it
+  // ends, including while it is still waiting for the browser to start.
+  process.once('exit', stop);
+  exitOnSignals();
+  if (windows) standBy(profile);
+
   const base = `http://127.0.0.1:${port}`;
   let version = null;
   for (let i = 0; i < 100 && !version; i++) {
     try { version = await (await fetch(`${base}/json/version`)).json(); } catch { await sleep(100); }
   }
-  // Chrome is a family of processes, and on Windows ending the one that was
-  // started can leave the rest running for good. So: end every browser process
-  // that was started with this throwaway profile (it is named on each one's
-  // command line), which can never match your own Chrome.
-  let stopped = false;
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    try { child.kill(); } catch { /* already gone */ }
-    if (process.platform !== 'win32') return;
-    const marker = basename(profile).replace(/'/g, "''");
-    spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-      `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*${marker}*' -and $_.Name -match '^(chrome|msedge)' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`,
-    ], { stdio: 'ignore', timeout: 20000 });
-  };
   if (!version) { stop(); throw new Error('Chrome did not start its debugging port.'); }
-  // Never leave the throwaway browser running if the script stops early.
-  process.once('exit', stop);
 
   const pages = [];
   return {
@@ -82,6 +169,8 @@ export async function launch({ port = 9333 + Math.floor(Math.random() * 500), he
     async close() {
       for (const p of pages) { try { p.socket.close(); } catch { /* already closed */ } }
       stop();
+      process.removeListener('exit', stop);
+      // The processes have only just ended: one more go at any profile file that was still in use.
       await sleep(300);
       await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(() => {});
     },
