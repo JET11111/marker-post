@@ -788,10 +788,16 @@ function vehicleCard(v) {
 const ALL_VIEWS = ['nearest', 'map', 'signs', 'vehicle', 'goto'];
 const viewEnabled = (v) => ALL_VIEWS.includes(v) && (v !== 'vehicle' || config.features.vehicle);
 
+// The map takes the post list once, when it starts, so it is not started
+// before the post data is in (on a weak first visit that can take a few
+// tries). Until then the Map tab says "Opening your patch…".
+let postsLoaded;
+const postsReady = new Promise((resolve) => { postsLoaded = resolve; });
+
 let networkMapPromise;
 function openNetworkMap(post) {
   if (!networkMapPromise) {
-    networkMapPromise = import('./map.js').then((m) => m.initMap({
+    networkMapPromise = postsReady.then(() => import('./map.js')).then((m) => m.initMap({
       posts: POSTS, junctions: JUNCTIONS, position: lastPos,
       // Back from the background with no fix since: the map holds that
       // position to the same limit as the first page.
@@ -1077,6 +1083,7 @@ async function init() {
     }
   }
   registerWorker();
+  postsLoaded();
   if (el('hero').dataset.state === 'error') {
     // A failed try said so on the first page: back to waiting for a position.
     setGps('wait', 'Acquiring…');
