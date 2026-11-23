@@ -10,15 +10,20 @@ import { el, h, setText, show } from './dom.js';
 import * as diagnostics from './diagnostics.js';
 import { haversine } from './core/geo.js';
 import {
-  computeTravelBearings, findNearest, nearestJunction, junctionLabel, nearestERA,
-  buildRef, parseRef, roadLabel, roadClass, junctionSection, postContext,
-  fmtDist, HEADING_MIN_SPEED,
+  computeTravelBearings, findNearest, headingUsable, nearestJunction, junctionLabel, nearestERA,
+  buildRef, parseRef, roadLabel, roadClass, junctionSection, postContext, farContext, accuracyUsable,
+  fmtDist, fmtClock, shortAge, positionStale, fixState, fixAlert, confirmCarriageway, postCaution, parseQuickEntry,
+  signLetter, postForSign, signPostNote, measuredFrom, NO_SIGNS, signsAfterLoad, signsFreshness,
 } from './core/posts.js';
 
 // ---------- small helpers ----------
 let toastTimer = null;
 function toast(message, ms = 5000) {
   const t = el('toast');
+  // An open sheet is drawn above everything else on the page, so the toast
+  // goes inside it; otherwise it would appear underneath and never be seen.
+  const home = [...document.querySelectorAll('dialog[open]')].pop() || document.body;
+  if (t.parentElement !== home) home.append(t);
   t.textContent = message;
   show(t, true);
   clearTimeout(toastTimer);
@@ -38,30 +43,34 @@ let JUNCTIONS = [];
 let ERAS = []; // Emergency Refuge Areas — only present on smart-motorway roads.
 let SECTIONS = null;    // junction sections from National Highways' records (data/post-sections.json)
 const byRoad = new Map();
-let lastPos = null;       // latest GPS fix
-let lastFixAt = 0;        // when it arrived (ms)
+let lastPos = null;       // latest GPS fix, exactly as the platform handed it over
+let lastFixAt = 0;        // that fix's own time (ms), never later than now
+let awaitingFix = false;  // back from the background, and no fresh fix has arrived yet
+let geoProblem = '';      // what the last location error said; the next fix clears it
 let lastFoundPost = null; // go-to result
 let currentView = 'nearest';
 
 async function loadData() {
-  const [posts, junctions, eras, sections] = await Promise.all([
+  // The app works without these two, so neither may hold up the first post for long.
+  const optional = (name) => loadBundled(name, { cache: 'no-cache', timeoutMs: 8000 }).catch(() => null);
+  const [posts, junctions, eras, sections, supplemental] = await Promise.all([
     loadBundled('posts.json', { cache: 'force-cache' }),
     loadBundled('junctions.json', { cache: 'force-cache' }),
     loadBundled('eras.json', { cache: 'force-cache' }),
     // Made when the app is built, from National Highways' own section records.
     // Without it the junction-section row is simply not shown.
-    loadBundled('post-sections.json', { cache: 'no-cache' }).catch(() => null),
+    optional('post-sections.json'),
+    // Unusual interchange road names and original link labels. They are real
+    // source records, but their survey date / physical presence is unknown.
+    // The core post tools still work if this supplement fails.
+    optional('posts-supplemental.json'),
   ]);
   SECTIONS = sections;
-  POSTS = posts;
-  // Retain unusual interchange road names and original link labels. They are
-  // real source records, but their survey date / physical presence is unknown.
-  try {
-    const supplemental = await loadBundled('posts-supplemental.json', { cache: 'no-cache' });
-    if (Array.isArray(supplemental.posts)) POSTS.push(...supplemental.posts);
-  } catch { /* The core post tools still work if the optional supplement fails. */ }
+  // A new list, never the loaded one added to: a second try must not double it.
+  POSTS = Array.isArray(supplemental?.posts) ? [...posts, ...supplemental.posts] : posts;
   JUNCTIONS = junctions;
   ERAS = eras;
+  byRoad.clear();
   for (const p of POSTS) {
     if (!byRoad.has(p.road)) byRoad.set(p.road, []);
     byRoad.get(p.road).push(p);
@@ -125,32 +134,25 @@ const NP_MAX = 158;
 // form is shown exactly as recorded.
 const bigRef = (ref) => String(ref).replace(/^P(?=\d)/, '');
 
-// The carriageway is "confirmed" when the direction of travel chose it. After
-// stopping, it stays confirmed while the nearest post is still on the same
-// carriageway and the vehicle has not moved far: you cannot change
-// carriageway without driving. This only changes the label, never which post
-// is reported.
-let lastConfirmed = null; // { road, direction, lat, lng }
-function carriagewayConfirmed(post, headingUsed, pos) {
-  if (headingUsed) {
-    lastConfirmed = { road: post.road, direction: post.direction, lat: pos.lat, lng: pos.lng };
-    return true;
-  }
-  return Boolean(lastConfirmed) && lastConfirmed.road === post.road &&
-    lastConfirmed.direction === post.direction &&
-    haversine(pos.lat, pos.lng, lastConfirmed.lat, lastConfirmed.lng) < 300;
-}
+// The carriageway is "confirmed" when the direction of travel chose it, or the
+// vehicle has since stopped close by on the same carriageway. The rule is
+// confirmCarriageway in core/posts.js; this is what it remembers from one fix
+// to the next. It only changes the label, never which post is reported.
+let confirmMemory = null;
 
 const clock = (ms) => new Date(ms).toLocaleTimeString('en-GB');
 
 // Hand the post on screen to the native apps' widgets: when it changes, and
-// otherwise every 15 seconds so their "last updated" time stays honest.
+// otherwise every 15 seconds so their "last updated" time stays honest. A
+// long way from the post (`far`) the line under it gives a distance, which
+// changes with every fix: that alone is handed over every 5 seconds, the
+// pace the phone's own trackers keep.
 const ROAD_CLASS_CODE = { motorway: 'M', 'a-road': 'A', other: 'O' };
 let publishedKey = '', publishedAt = 0;
-function publishPost(post, context, confirmed) {
+function publishPost(post, context, confirmed, far) {
   if (!P.isNative) return;
-  const key = `${post.road}|${post.ref}|${context}|${confirmed}`, now = Date.now();
-  if (key === publishedKey && now - publishedAt < 15000) return;
+  const key = `${post.road}|${post.ref}|${far ? 'far' : context}|${confirmed}`, now = Date.now();
+  if (key === publishedKey && now - publishedAt < (far ? 5000 : 15000)) return;
   publishedKey = key; publishedAt = now;
   const parts = parseRef(post.ref);
   P.publishPost({
@@ -160,13 +162,24 @@ function publishPost(post, context, confirmed) {
   });
 }
 
+// What the first page is showing, kept for the lines that change with the clock.
+let shown = null; // { post, far }
+
 function renderNearest() {
   const p = lastPos;
   if (!p || !POSTS.length) return;
   const useHeading = el('heading-toggle').checked;
   const { post, dist, headingUsed } = findNearest(POSTS, p.lat, p.lng, p.heading, p.speed, useHeading);
   if (!post) return;
-  const confirmed = carriagewayConfirmed(post, headingUsed, p);
+  // The post found can be a long way off (`far`): away from the network, or
+  // on a stretch with no recorded posts for this direction of travel. It is
+  // still shown, but never as confirmed, and nothing is said about the
+  // junction section or the emergency areas of a carriageway the vehicle may
+  // not be on.
+  const { confirmed, far, memory } = confirmCarriageway(confirmMemory,
+    { post, dist, headingUsed, lat: p.lat, lng: p.lng, at: lastFixAt });
+  confirmMemory = memory;
+  shown = { post, far };
 
   const ref = el('np-ref');
   setText(ref, bigRef(post.ref));
@@ -177,7 +190,7 @@ function renderNearest() {
 
   // The junction section, as National Highways' record of this stretch of
   // carriageway describes it. No record, no row: never a guess.
-  const section = post.link ? null : junctionSection(post, SECTIONS);
+  const section = post.link || far ? null : junctionSection(post, SECTIONS);
   setText(el('np-section-lbl'), section?.kind === 'within' ? 'Within junction' : 'Between junctions');
   setText(el('np-section'), section ? (section.kind === 'within' ? section.at : section.label) : '');
   show(el('np-section-row'), Boolean(section));
@@ -194,8 +207,9 @@ function renderNearest() {
 
   // ERA row: only shows on smart motorways (the only roads with ERA data),
   // and prefers the nearest bay ahead in the direction of travel.
+  // Not offered a long way from the post: the bay is on that post's carriageway.
   const eraRow = el('np-era-row');
-  const ne = nearestERA(ERAS, p.lat, p.lng, post.road, post.direction, p.heading, p.speed, useHeading);
+  const ne = far ? null : nearestERA(ERAS, p.lat, p.lng, post.road, post.direction, p.heading, p.speed, useHeading);
   if (ne) {
     setText(el('np-era'), `≈ ${buildRef(ne.era.km, ne.era.dir)}`);
     setText(el('np-era-dist'), ne.ahead ? `${fmtDist(ne.dist)} ahead` : fmtDist(ne.dist));
@@ -204,76 +218,154 @@ function renderNearest() {
     show(eraRow, false);
   }
 
-  // The line under the list: when the post was read, and what the reader
-  // should know about it. A carriageway chosen by position alone is said so.
-  const byPositionOnly = !confirmed && Boolean(parseRef(post.ref));
-  setText(el('np-meta'), post.link
-    ? `${post.link} · source survey date unknown · distances are straight-line`
-    : `updated ${clock(lastFixAt)} · distances are straight-line`);
+  // The caution under the list. A carriageway that is not confirmed is said
+  // to be so, and so is a post that is a long way off. The words (postCaution
+  // in core/posts.js) go by whether the direction of travel was in use for
+  // this reading: it passes over the posts of a carriageway flowing the other
+  // way, so the post it leaves is not always the nearest of all. (The line
+  // above it, with the time of the reading, is written by showFixState.)
   const note = el('np-note');
-  if (byPositionOnly) setText(note, 'Nearest post by position only. Check the carriageway.');
-  show(note, byPositionOnly);
+  const caution = postCaution({ post, dist, confirmed, far, byTravel: headingUsable(p.heading, p.speed, useHeading) });
+  if (caution) setText(note, caution);
+  show(note, Boolean(caution));
 
   // What the phone's widgets and notification show under the post: the same
-  // line the phone's own trackers use, which describes the post, not the vehicle.
-  publishPost(post, postContext(post, SECTIONS, JUNCTIONS), confirmed);
+  // line the phone's own trackers use. It describes the post, not the
+  // vehicle; a long way from the post it says only how far away the post is.
+  // A fix too rough for those surfaces is not handed over at all: they
+  // cannot carry the caution this page shows beside it.
+  if (accuracyUsable(p.accuracy)) {
+    publishPost(post, far ? farContext(dist) : postContext(post, SECTIONS, JUNCTIONS), confirmed, far);
+  }
 }
 
-// GPS quality: green = trust it, amber = marginal, red = poor/unknown.
-function setGps(state, text, accuracy = '') {
-  const dot = el('gps-dot');
-  dot.classList.remove('live', 'wait', 'err');
-  if (state) dot.classList.add(state);
-  setText(el('gps-text'), text);
+// GPS quality: green = trust it, amber = marginal, red = poor/unknown. The
+// first page always shows the words. The other tabs show them (`flag`) only
+// when the position is not a current, good, real one.
+const DOT_STATES = ['live', 'wait', 'err'];
+function setGps(state, text, { accuracy = '', flag = false } = {}) {
+  const paint = (dot, label) => {
+    // This runs every second, so only a dot that has changed is touched.
+    for (const s of DOT_STATES) dot.classList.toggle(s, s === state);
+    setText(label, text);
+  };
+  paint(el('gps-dot'), el('gps-text'));
   setText(el('gps-acc'), accuracy);
+  for (const pill of document.querySelectorAll('.gps-flag')) {
+    paint(pill.firstElementChild, pill.lastElementChild);
+    show(pill, flag);
+  }
+}
+
+// The one word for the state of the position that every screen and both
+// stylesheets go by, as body[data-gps]: 'wait' until there is a fix, 'live',
+// 'stale' for a last known position, and 'off' when none can come until
+// something is put right (location blocked or switched off, no geolocation,
+// or the post data did not load).
+let gpsState = '';
+function setGpsState(state) {
+  if (state === gpsState) return;
+  gpsState = state;
+  document.body.dataset.gps = state;
+  // Signs sorts by the position and quotes distances from it: draw it again,
+  // so that a last known position is labelled as one.
+  if (currentView === 'signs' && vms.data) renderSigns();
 }
 
 function onFix(fix) {
+  const now = Date.now();
+  // The fix's own time, not the moment it reached the page: a position the
+  // system kept from earlier must not pass as new.
+  const at = Math.min(now, fix.timestamp || now);
   lastPos = fix;
-  lastFixAt = Date.now();
-  const acc = fix.accuracy;
-  // A made-up position must never be mistaken for a real one.
-  if (fix.simulated) setGps('wait', 'Simulated');
-  else setGps(acc == null ? 'wait' : acc <= 10 ? 'live' : acc <= 25 ? 'wait' : 'err',
-    'Live', acc == null ? '' : `±${Math.round(acc)} m`);
-  el('hero').dataset.state = 'live';
-  show(el('np-alert'), false);
-  window.dispatchEvent(new CustomEvent('markerpost:position', { detail: lastPos }));
+  lastFixAt = at;
+  geoProblem = '';
+  // Only a fix read in the last few seconds ends the wait after a return.
+  if (!positionStale(at, fix.speed, now, true)) awaitingFix = false;
+  // The map takes the fix as it is: its own time, its speed and, for a
+  // made-up position, its `simulated` mark.
+  window.dispatchEvent(new CustomEvent('markerpost:position', { detail: fix }));
   renderNearest();
+  showFixState();
+  // Signs quotes each distance from the position and puts the nearest first:
+  // draw it again once the vehicle is 100 m from where the list was drawn
+  // (about every 3 s at motorway speed, never while standing).
+  if (currentView === 'signs' && vms.data && gpsState === 'live'
+    && (!signsDrawnFrom || haversine(fix.lat, fix.lng, signsDrawnFrom.lat, signsDrawnFrom.lng) > 100)) renderSigns();
 }
 
 function onGeoError(err) {
-  const blocked = err.code === 1, none = err.code === 0;
-  setGps('err', none ? 'No GPS' : blocked ? 'Location blocked' : 'GPS error');
+  // The phone apps: location has been allowed, or switched on, again and the
+  // watch is looking for a position. Nothing is wrong any more, so nothing
+  // may go on saying it is.
+  if (err.reason === 'looking') {
+    geoProblem = '';
+    if (lastPos) { showFixState(); return; }
+    setGps('wait', 'Acquiring…');
+    setGpsState('wait');
+    el('hero').dataset.state = 'waiting';
+    setText(el('np-meta'), 'Waiting for GPS…');
+    return;
+  }
+  const none = err.code === 0, blocked = err.code === 1;
+  // The phone apps also say when location is switched off for the whole phone.
+  const off = err.reason === 'location-off';
+  geoProblem = none ? 'No GPS' : blocked ? 'Location blocked' : off ? 'Location off' : 'GPS error';
+  setGps('err', geoProblem, { flag: true });
   if (!lastPos) {
+    // A passing problem is still a wait: the watch goes on trying.
+    setGpsState(none || blocked || off ? 'off' : 'wait');
     el('hero').dataset.state = 'error';
     setText(el('np-meta'), none ? 'No geolocation on this device.'
       : blocked ? 'Location is blocked. Allow location for Marker Post in Settings.'
-        : 'No GPS position yet.');
+        : off ? 'Location Services are switched off on this phone.'
+          : 'No GPS position yet.');
   }
 }
 
-const shortAge = (s) => (s < 60 ? `${Math.max(5, Math.floor(s / 5) * 5)} s`
-  : s < 3600 ? `${Math.floor(s / 60)} min` : `${(s / 3600).toFixed(1)} h`);
-
-// A post that is no longer being updated must not look current. Moving, a
-// gap of 15 s matters (the post changes every few seconds); stationary, the
-// post cannot change, so only a long silence is flagged.
-function checkStale() {
+// Everything the screens say about the position itself, worked out from the
+// last fix and the clock: on every fix, and once a second. A post that is no
+// longer being updated must not look current, and a post read from a poor
+// fix, or a long way from the vehicle, must not look like a sure one. The
+// rules are fixState, fixAlert and staleAfterMs in core/posts.js, the same
+// for every screen.
+function showFixState() {
   if (!lastPos) return;
-  const age = (Date.now() - lastFixAt) / 1000;
-  const limit = lastPos.speed == null ? 30 : lastPos.speed > HEADING_MIN_SPEED ? 15 : 120;
-  const hero = el('hero');
-  if (age > limit) {
-    hero.dataset.state = 'stale';
-    const alert = el('np-alert');
-    setText(alert, `No GPS update for ${shortAge(age)} · last known post`);
-    show(alert, true);
-    setGps('err', 'No GPS update');
-  } else if (hero.dataset.state === 'stale') {
-    hero.dataset.state = 'live';
-    show(el('np-alert'), false);
+  const state = fixState(lastPos, lastFixAt, Date.now(), awaitingFix);
+  const { ageMs, stale, quiet, accuracy, poor } = state;
+
+  if (stale) setGps('err', 'No GPS update', { flag: true });
+  else if (geoProblem) setGps('err', geoProblem, { flag: true });
+  // A made-up position must never be mistaken for a real one.
+  else if (lastPos.simulated) setGps('wait', 'Simulated', { flag: true });
+  else {
+    setGps(accuracy == null ? 'wait' : accuracy <= 10 ? 'live' : accuracy <= 25 ? 'wait' : 'err', poor ? 'Poor GPS' : 'Live',
+      { accuracy: accuracy == null ? '' : `±${Math.round(accuracy)} m`, flag: poor });
   }
+  setGpsState(stale ? 'stale' : 'live');
+  if (!shown) return;
+
+  // The big reference dims whenever it is not a current, sure reading.
+  const hero = el('hero'), look = stale ? 'stale' : poor ? 'poor' : shown.far ? 'far' : 'live';
+  if (hero.dataset.state !== look) hero.dataset.state = look;
+  // The callout: no update, or a rough fix. A last known post that was read
+  // from a rough fix says both: its caution does not lapse with age.
+  const alert = el('np-alert'), warning = fixAlert(state);
+  if (warning) setText(alert, warning);
+  show(alert, Boolean(warning));
+
+  // The line under the list: when the post was read, and what the reader
+  // should know about it. After half a minute with no fix the age is put in
+  // words whatever the speed, well before a standing vehicle's post dims.
+  const ago = quiet ? `${shortAge(ageMs / 1000)} ago` : '';
+  const { link } = shown.post;
+  const meta = el('np-meta');
+  setText(meta, [
+    link ? `${link} · source survey date unknown` : `updated ${clock(lastFixAt)}`,
+    ago && (link ? `updated ${ago}` : ago),
+    'distances are straight-line',
+  ].filter(Boolean).join(' · '));
+  meta.classList.toggle('np-late', quiet);
 }
 
 function startGeo() {
@@ -371,7 +463,8 @@ function findPost() {
       `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km · post ${match.ref}${match.link ? ' · source survey date unknown' : ''}`);
     P.haptic('success');
   } else if (mode === 'offdist') {
-    setCallout(warn, `No ${roadLabel(road)}/${dir} post at ${dist} km — nearest is ${match.ref} (${match.distance} km, ${off.toFixed(1)} km away). Check the carriageway and distance.`);
+    // Both figures are marker distances from the records, not measured from the vehicle.
+    setCallout(warn, `No ${roadLabel(road)}/${dir} post at ${dist} km — nearest is ${match.ref} (${match.distance} km, ${off.toFixed(1)} km from the distance entered). Check the carriageway and distance.`);
     show(warn, true);
     setText(sectionEl, 'Nearest recorded post');
     setText(el('r-detail'), `${roadLabel(match.road)} · carriageway ${match.direction} · ${match.distance} km · post ${match.ref}`);
@@ -386,27 +479,13 @@ function findPost() {
   waze.href = `https://waze.com/ul?ll=${match.lat},${match.lng}&navigate=yes`;
 }
 
-// "M27 13.6 A" / "M27 13.6A" / "P13/6A M27"
-function parseQuick(s) {
-  s = s.trim().toUpperCase();
-  if (!s) return;
-  const road = (s.match(/\b(A\d+\(M\)|[AM]\d+M?)/) || [])[0];
-  // Remove the road token first so its digits/letter don't get read as distance/dir.
-  const rest = road ? s.replace(road, ' ') : s;
-  let dist, dir;
-  const ref = s.match(/P(\d+)\/(\d)\s*([A-Z])/);
-  if (ref) {
-    dist = parseFloat(ref[1]) + parseFloat(ref[2]) / 10;
-    dir = ref[3];
-  } else {
-    const dm = rest.match(/(\d+(?:\.\d+)?)/);
-    if (dm) dist = parseFloat(dm[1]);
-    // carriageway letter: any standalone/trailing A–Z (M271 uses L/M, links J/K…)
-    const dirm = rest.match(/\b([A-Z])\b/) || rest.match(/([A-Z])\s*$/);
-    if (dirm) dir = dirm[1];
-  }
-  if (road && byRoad.has(road.replace('(M)', 'M'))) {
-    el('g-road').value = road.replace('(M)', 'M');
+// Quick entry: fill the three fields from what was typed. parseQuickEntry in
+// core/posts.js reads "M27 13.6 A", "M27 13.6A", "P13/6A M27" and the short
+// form the first page shows, "M27 13/6A".
+function parseQuick(text) {
+  const { road, dist, dir } = parseQuickEntry(text);
+  if (road && byRoad.has(road)) {
+    el('g-road').value = road;
     onRoadChange();
   }
   if (dist != null && !Number.isNaN(dist)) el('g-dist').value = dist;
@@ -419,49 +498,56 @@ function parseQuick(s) {
 // ---------- VMS signs view ----------
 // Live relay first (sub-minute freshness); otherwise the published snapshot
 // (refreshed by the scheduled job); offline, the last saved copy. The header
-// always says which of those is on screen.
-let VMS = null;
-let vmsOrigin = null;      // 'live' | 'network' | 'saved' | 'bundled'
+// always says which of those is on screen. A refresh that fails is recorded,
+// so the screen can never go on saying "Live": the rules are signsAfterLoad
+// and signsFreshness in core/posts.js.
+let vms = NO_SIGNS;        // { data, origin, loadedAt, refreshFailed }
 let pollerLastRun = null;  // when the scheduled job last succeeded (ms)
 let pollerAskedAt = 0;
 let vmsLoading = false;
 
 async function loadVms() {
+  // Work out the ages and the Live flag afresh straight away, whatever a
+  // request is doing: nothing is left on screen as it was when last drawn.
+  if (vms.data) renderSigns();
   if (vmsLoading) return;
   vmsLoading = true;
   try {
     try {
       const r = await P.getJson(config.vmsLiveUrl, { timeoutMs: 8000 });
       if (!r.ok || !r.data || !Array.isArray(r.data.signs)) throw new Error('bad payload');
-      VMS = r.data;
-      vmsOrigin = 'live';
+      vms = signsAfterLoad(vms, { data: r.data, origin: 'live' }, Date.now());
       renderSigns();
       return;
     } catch { /* relay unreachable: fall back to the snapshot */ }
 
+    let snap = null;
     try {
-      const snap = await loadSnapshot('vms.json', {
+      snap = await loadSnapshot('vms.json', {
         stamp: (d) => d.fetched,
         validate: (d) => Boolean(d && Array.isArray(d.signs)),
         timeoutMs: 8000,
       });
-      VMS = snap.data;
-      vmsOrigin = snap.origin;
-    } catch { /* offline with nothing saved — keep whatever we had */ }
+    } catch { /* offline with nothing saved: keep whatever is on screen */ }
+    vms = signsAfterLoad(vms, snap, Date.now());
+    // Draw now: the signs must not wait on the question that follows.
+    renderSigns();
 
     // The snapshot only changes when signs change, so its timestamp is "last
     // change", not "last check". When the snapshot was downloaded just now,
     // ask GitHub when the poller last ran green. Asked at most every five
     // minutes: it is a public, rate-limited API.
-    if (vmsOrigin === 'network' && Date.now() - pollerAskedAt > 5 * 60 * 1000) {
+    if (snap && snap.origin === 'network' && Date.now() - pollerAskedAt > 5 * 60 * 1000) {
       pollerAskedAt = Date.now();
       try {
-        const r = await fetch(config.vmsRunsUrl);
-        const runs = (await r.json()).workflow_runs;
-        if (runs && runs.length) pollerLastRun = new Date(runs[0].updated_at).getTime();
+        const r = await P.getJson(config.vmsRunsUrl, { timeoutMs: 8000 });
+        const runs = r.data?.workflow_runs;
+        if (runs && runs.length) {
+          pollerLastRun = new Date(runs[0].updated_at).getTime();
+          renderSigns();
+        }
       } catch { /* keep last known */ }
     }
-    renderSigns();
   } finally {
     vmsLoading = false;
   }
@@ -512,22 +598,24 @@ function signGroup(s) {
   return signKm.get(s.id) >= m3SplitKm - 0.3 ? 'M3 J7-14' : 'M3 J4-7';
 }
 
-// Each sign is located against our own dataset: the nearest marker post.
-const signNear = new Map(); // sign id -> post ref or null
-function nearestPostRef(s) {
-  if (s.lat == null) return null;
+// Each sign is located against our own dataset: a post on the sign's own road
+// and carriageway or, failing that, the nearest by position, said to be so.
+let signsDrawnFrom = null; // the position the Signs list was last drawn from
+const signNear = new Map(); // sign id and position -> { post, dist, matched } or null
+function signPost(s) {
+  // Signs can open before the post data has loaded. "No post" must not be
+  // remembered for a sign then, or it would stay that way all session.
+  if (!POSTS.length) return null;
   const key = `${s.id}|${s.lat}|${s.lng}`;
-  if (!signNear.has(key)) {
-    const { post, dist } = findNearest(POSTS, s.lat, s.lng, null, null, false);
-    signNear.set(key, post && dist <= 250 ? post.ref : null);
-  }
+  if (!signNear.has(key)) signNear.set(key, postForSign(s, POSTS));
   return signNear.get(key);
 }
 
 function renderSigns() {
   const list = el('s-list'), meta = el('s-meta'), stale = el('s-stale'), chips = el('s-filters');
-  if (!VMS || !VMS.fetched || !VMS.signs) {
-    setText(meta, VMS && !VMS.fetched
+  const feed = vms.data;
+  if (!feed || !feed.fetched || !feed.signs) {
+    setText(meta, feed && !feed.fetched
       ? 'No sign data yet — the update feed hasn\'t run.'
       : 'No sign data available.');
     show(stale, false);
@@ -535,33 +623,33 @@ function renderSigns() {
     list.replaceChildren();
     return;
   }
-  const age = (Date.now() - new Date(VMS.fetched).getTime()) / 60000; // since the signs last changed
+  const now = Date.now();
+  const age = (now - new Date(feed.fetched).getTime()) / 60000; // since the signs last changed
   // Staleness = time since the feed was last checked (if known), not since the
-  // signs last changed — a quiet hour on the network isn't stale data.
-  const checkedAt = vmsOrigin === 'live' ? Date.now() : vmsOrigin === 'network' ? pollerLastRun : null;
-  const checkedAge = checkedAt ? (Date.now() - checkedAt) / 60000 : null;
-  if (vmsOrigin === 'saved' || vmsOrigin === 'bundled') {
-    setCallout(stale, `${vmsOrigin === 'bundled' ? 'Copy shipped with the app' : 'Saved copy'}, not refreshed. Signs last changed ${fmtAge(age)} — messages may have changed since.`);
-    show(stale, true);
-  } else {
-    const effAge = checkedAge ?? age;
-    if (effAge > 30) {
-      setCallout(stale, `No successful update for ${fmtAge(effAge).replace(' ago', '')} — messages may have changed since.`);
-      show(stale, true);
-    } else {
-      show(stale, false);
-    }
+  // signs last changed — a quiet hour on the network isn't stale data. A copy
+  // that a refresh has just failed to replace is said to be so at once.
+  const fresh = signsFreshness(vms, now, pollerLastRun);
+  const checkedAge = fresh.checkedAt ? (now - fresh.checkedAt) / 60000 : null;
+  if (fresh.caution === 'saved' || fresh.caution === 'bundled') {
+    setCallout(stale, `${fresh.caution === 'bundled' ? 'Copy shipped with the app' : 'Saved copy'}, not refreshed. Signs last changed ${fmtAge(age)} — messages may have changed since.`);
+  } else if (fresh.caution === 'kept') {
+    setCallout(stale, `Could not refresh. Showing the copy loaded at ${fmtClock(vms.loadedAt, now)} — messages may have changed since.`);
+  } else if (fresh.caution === 'old') {
+    setCallout(stale, `No successful update for ${fmtAge(checkedAge ?? age).replace(' ago', '')} — messages may have changed since.`);
   }
+  show(stale, Boolean(fresh.caution));
 
   // Filter chips: one per road (motorways first) + a blank-signs toggle.
   const counts = {};
-  for (const s of VMS.signs) { const g = signGroup(s); counts[g] = (counts[g] || 0) + 1; }
+  for (const s of feed.signs) { const g = signGroup(s); counts[g] = (counts[g] || 0) + 1; }
   const roads = Object.keys(counts).sort((a, b) => {
     const ma = a[0] === 'M', mb = b[0] === 'M';
     if (ma !== mb) return ma ? -1 : 1;
     return a.localeCompare(b, undefined, { numeric: true });
   });
-  vmsFilter.roads = vmsFilter.roads.filter((r) => counts[r]); // drop stale roads
+  // Drop roads no longer in the feed. Not before the post data is in: until
+  // then the M3 cannot be split at J7, and a saved M3 group would be lost.
+  if (POSTS.length) vmsFilter.roads = vmsFilter.roads.filter((r) => counts[r]);
   const sel = vmsFilter.roads;
   const chip = (label, pressed, onclick, count) => h('button', {
     class: 'chip', type: 'button', 'aria-pressed': String(pressed), onclick,
@@ -577,8 +665,11 @@ function renderSigns() {
   );
   show(chips, true);
 
-  // Apply filters; nearest-first when we have a fix, else the feed's road order.
-  const signs = VMS.signs
+  // Apply filters. Nearest first only from a current position: from a last
+  // known one the list keeps the feed's road order, and each distance says
+  // what it was measured from.
+  const lastKnown = gpsState === 'stale';
+  const signs = feed.signs
     .filter((s) =>
       (!sel.length || sel.includes(signGroup(s))) &&
       (vmsFilter.blanks || (s.lines && s.lines.length)))
@@ -586,24 +677,30 @@ function renderSigns() {
       ...s,
       d: lastPos && s.lat != null ? haversine(lastPos.lat, lastPos.lng, s.lat, s.lng) : null,
     }));
-  if (lastPos) signs.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
+  if (lastPos && !lastKnown) signs.sort((a, b) => (a.d ?? Infinity) - (b.d ?? Infinity));
+  signsDrawnFrom = lastPos;
+  const from = lastPos ? measuredFrom({ stale: lastKnown, simulated: lastPos.simulated, fixAt: lastFixAt }, now) : '';
 
-  const summary = `${signs.length} of ${VMS.signs.length} signs`;
+  const summary = `${signs.length} of ${feed.signs.length} signs`;
+  const loaded = `loaded ${fmtAge((now - vms.loadedAt) / 60000)}`;
+  const lastChange = `last change ${fmtAge(age)}`;
   meta.replaceChildren(
-    ...(vmsOrigin === 'live' ? [h('span', { class: 'live-flag' }, h('i', { class: 'dot live' }), 'Live')] : []),
+    ...(fresh.live ? [h('span', { class: 'live-flag' }, h('i', { class: 'dot live' }), 'Live')] : []),
     h('span', {
-      text: vmsOrigin === 'live' ? `${summary} · updated ${fmtAge(age)}`
-        : vmsOrigin === 'network' && checkedAge != null ? `${summary} · checked ${fmtAge(checkedAge)} · last change ${fmtAge(age)}`
-          : vmsOrigin === 'network' ? `${summary} · updated ${fmtAge(age)}`
-            : `${summary} · last change ${fmtAge(age)}`,
+      text: fresh.caution === 'kept' ? `${summary} · ${loaded}${vms.origin === 'network' ? ` · ${lastChange}` : ''}`
+        : vms.origin === 'live' ? `${summary} · updated ${fmtAge(age)}`
+          : vms.origin === 'network' && checkedAge != null ? `${summary} · checked ${fmtAge(checkedAge)} · ${lastChange}`
+            : vms.origin === 'network' ? `${summary} · updated ${fmtAge(age)}`
+              : `${summary} · ${lastChange}`,
     }),
   );
   list.replaceChildren(...(signs.length
-    ? signs.map(signCard)
+    ? signs.map((s) => signCard(s, from))
     : [h('div', { class: 'signs-empty', text: `No signs match the filter${vmsFilter.blanks ? '' : ' (blank signs are hidden)'}.` })]));
 }
 
-function signCard(s) {
+/** One sign. `from` says what its distance was measured from. */
+function signCard(s, from) {
   const status = String(s.status || '').trim();
   const off = status !== 'working'; // blank/covered/notWorking — flag it
   const hasText = s.lines && s.lines.length;
@@ -612,20 +709,22 @@ function signCard(s) {
       : h('div', { class: 'sign-blank', text: 'blank' }));
 
   const bits = [String(s.id)];
-  const near = nearestPostRef(s);
-  if (near) bits.push(`near ${near}`);
-  if (s.d != null) bits.push(`${fmtDist(s.d)} from you, straight-line`);
-  const set = s.setAt && !Number.isNaN(Date.parse(s.setAt))
-    ? new Date(s.setAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
-    : null;
+  const post = signPostNote(s, signPost(s));
+  if (post) bits.push(post);
+  if (s.d != null) bits.push(`${fmtDist(s.d)} ${from}, straight-line`);
+  // With the date when it was not set today, so an old message never reads as today's.
+  const set = s.setAt ? fmtClock(Date.parse(s.setAt)) : '';
   if (set && hasText) bits.push(`set ${set}`);
 
+  // The carriageway is the letter in the sign's own identifier. The feed's
+  // compass word (s.dir) is never shown.
+  const letter = signLetter(s.id);
   return h('div', { class: `sign-card${off ? ' off' : ''}` },
     panel,
     h('div', { class: 'sign-info' },
       h('div', { class: 'sign-road' },
         h('b', { text: roadLabel(s.road || '?') }),
-        s.dir ? ` ${s.dir}` : null,
+        letter ? ` · carriageway ${letter}` : null,
         off ? [' · ', h('span', { class: 'warn', text: status })] : null),
       h('div', { class: 'sign-sub', text: bits.join(' · ') })));
 }
@@ -694,10 +793,17 @@ function openNetworkMap(post) {
   if (!networkMapPromise) {
     networkMapPromise = import('./map.js').then((m) => m.initMap({
       posts: POSTS, junctions: JUNCTIONS, position: lastPos,
+      // Back from the background with no fix since: the map holds that
+      // position to the same limit as the first page.
+      positionUnseen: awaitingFix,
     })).catch((err) => {
       networkMapPromise = null;
-      el('map-app').replaceChildren(h('div', { class: 'map-loading', role: 'status',
-        text: 'The map could not load. Check your connection and reopen the Map tab.' }));
+      // When the map has already said why it cannot start (a device that
+      // cannot draw it, for one), its own words stay: a connection is not the cure.
+      if (!err?.messageShown) {
+        el('map-app').replaceChildren(h('div', { class: 'map-loading', role: 'status',
+          text: 'The map could not load. Check your connection and reopen the Map tab.' }));
+      }
       throw err;
     });
   }
@@ -744,8 +850,25 @@ function initSheets() {
   });
   el('open-about').addEventListener('click', () => { paintDiagnostics(); el('about-sheet').showModal(); });
   el('diag-copy').addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(diagnostics.report()); toast('Diagnostics copied.'); }
-    catch { toast('Copy is unavailable here.'); }
+    const report = diagnostics.report();
+    try {
+      await navigator.clipboard.writeText(report);
+      // A report left on screen by an earlier refusal is out of date now.
+      el('diag-text')?.remove();
+      toast('Diagnostics copied.');
+    } catch {
+      // The clipboard was refused: put the text on screen, where it can be
+      // selected by hand. It is the only way to get it off the phone.
+      let box = el('diag-text');
+      if (!box) {
+        box = h('pre', { id: 'diag-text', class: 'licence-text' });
+        el('diag-copy').after(box);
+      }
+      box.textContent = report;
+      // It goes in below the button, usually off the bottom of the sheet: bring it up.
+      box.scrollIntoView(false);
+      toast('Copy is unavailable here. The text is below: press and hold to select it.');
+    }
   });
   diagnostics.onChange(() => { if (el('about-sheet').open) paintDiagnostics(); });
 }
@@ -765,10 +888,11 @@ function initTheme() {
     for (const b of buttons) b.setAttribute('aria-pressed', String(b.dataset.themeChoice === choice));
   };
   for (const b of buttons) {
-    b.addEventListener('click', () => { setTheme(b.dataset.themeChoice); paint(); P.haptic('selection'); });
+    b.addEventListener('click', () => { setTheme(b.dataset.themeChoice); P.haptic('selection'); });
   }
-  paint();
-  onThemeChange((dark) => P.setSystemBars(dark), { immediate: true });
+  // After every change, wherever it was made (the map's layers sheet has its
+  // own control), so the buttons here always show the choice in force.
+  onThemeChange((dark) => { paint(); P.setSystemBars(dark); }, { immediate: true });
 }
 
 // ---------- live tracking (native apps only) ----------
@@ -789,7 +913,7 @@ async function initLive() {
   const ios = P.platform === 'ios';
   show(el('about-live'), true);
   setText(el('about-live-text'), ios
-    ? 'Live tracking shows the nearest post on the Lock Screen, in the Dynamic Island and on the CarPlay Dashboard, using location in the background. iPhone ends a Live Activity after 8 hours; the app schedules a follow-on where the system allows and otherwise asks you to reopen it. The post is looked up on the phone from the bundled data, so it works with no signal.'
+    ? 'Live tracking shows the nearest post on the Lock Screen, in the Dynamic Island on phones that have one, and on the CarPlay Dashboard (CarPlay needs iOS 26 or later), using location in the background. iPhone ends a Live Activity after 8 hours; the app schedules a follow-on where the system allows and otherwise asks you to reopen it. The post is looked up on the phone from the bundled data, so it works with no signal.'
     : 'Live tracking shows the nearest post in a notification that stays live with the screen off, and keeps the home screen widget current. It uses location while the notification is showing and stops when you tap Stop. The post is looked up on the phone from the bundled data, so it works with no signal.');
   const paint = (s) => {
     liveActive = Boolean(s && s.active);
@@ -798,7 +922,7 @@ async function initLive() {
     btn.classList.toggle('btn-live-on', liveActive);
     setText(label, liveActive ? 'Stop live tracking' : 'Start live tracking');
     setText(note, liveActive
-      ? (ios ? 'Live on the Lock Screen, Dynamic Island and CarPlay.' : 'Live in your notifications, with the screen off too.')
+      ? (ios ? 'Live on the Lock Screen, and in the Dynamic Island and on the CarPlay Dashboard where the phone has them.' : 'Live in your notifications, with the screen off too.')
       : '');
     show(note, liveActive);
   };
@@ -817,6 +941,10 @@ async function initLive() {
     } else if (!wasActive && s?.reason === 'notifications-denied') {
       // Android: tracking runs without the permission, but there is nothing to see. Say so.
       toast('Tracking is on, but notifications are switched off for Marker Post, so the post cannot be shown. Allow them in Settings.');
+      P.haptic('warning');
+    } else if (wasActive && liveActive) {
+      // The request to stop did not get through, so tracking may still be running. Say so.
+      toast('Live tracking could not be stopped. Try again.');
       P.haptic('warning');
     } else {
       P.haptic(liveActive ? 'success' : 'light');
@@ -858,12 +986,14 @@ function initSoftware() {
 }
 
 // ---------- online/offline ----------
+// Said on every tab but the map, which has its own words for it.
 function updateOnline() {
-  show(el('offline'), !navigator.onLine);
+  for (const pill of document.querySelectorAll('#offline, .offline-flag')) show(pill, !navigator.onLine);
 }
 
 // ---------- init ----------
 async function init() {
+  setGpsState('wait');
   initTheme();
   initSheets();
   show(el('tab-vehicle'), config.features.vehicle);
@@ -887,16 +1017,75 @@ async function init() {
     return false;
   });
 
-  try {
-    await loadData();
-  } catch (e) {
-    console.error('Post data:', e);
-    diagnostics.note('error', `Post data failed to load: ${e?.message || e}`);
-    setGps('err', 'No data');
-    el('hero').dataset.state = 'error';
-    setText(el('np-meta'), 'Failed to load post data.');
-    return;
+  // Set up before the post data is asked for, because the app stops here if
+  // that fails. Being offline is the likeliest reason, so the Offline pills
+  // must still work. And Signs still opens, so it must go on checking its
+  // messages (the Refresh button, and a ~30 s re-poll while the tab is open
+  // and on screen; the relay's edge cache absorbs the rest): otherwise it
+  // would go on saying "Live" for as long as it stayed open.
+  window.addEventListener('online', updateOnline);
+  window.addEventListener('offline', updateOnline);
+  updateOnline();
+  el('s-refresh').addEventListener('click', () => { P.haptic('light'); loadVms(); });
+  setInterval(() => {
+    if (currentView === 'signs' && document.visibilityState === 'visible') loadVms();
+  }, 30 * 1000);
+
+  // Vehicle lookup does not need the post data, so it works while that loads.
+  // Uppercase as you type; Enter or the button submits.
+  if (config.features.vehicle) {
+    el('v-find').addEventListener('click', lookupVehicle);
+    el('v-reg').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); lookupVehicle(); }
+    });
+    el('v-reg').addEventListener('input', (e) => {
+      const c = e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, '');
+      if (c !== e.target.value) e.target.value = c;
+    });
   }
+
+  // The service worker keeps the app and its data for use without signal. It
+  // is registered once the first try at the post data is over, so that on a
+  // first visit the two downloads do not compete; but also when that try
+  // failed, or the next visit would start from nothing as well.
+  let workerAsked = false;
+  const registerWorker = () => {
+    if (workerAsked || config.target !== 'pwa' || !('serviceWorker' in navigator)) return;
+    workerAsked = true;
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  };
+
+  // The post data. A first visit on a weak signal may not get it at the first
+  // try: try again, every few seconds, for as long as the page is open. (A
+  // second try joins a download that is still running.)
+  for (let failures = 0; ; failures++) {
+    try {
+      await loadData();
+      break;
+    } catch (e) {
+      registerWorker();
+      if (!failures) {
+        console.error('Post data:', e);
+        diagnostics.note('error', `Post data failed to load: ${e?.message || e}`);
+      }
+      // "Post" data: this word is also shown on Signs, whose own data may be fine.
+      setGps('err', 'No post data', { flag: true });
+      setGpsState('off');
+      el('hero').dataset.state = 'error';
+      setText(el('np-meta'), 'Could not load the post data. Trying again…');
+      await new Promise((resolve) => { setTimeout(resolve, 5000); });
+    }
+  }
+  registerWorker();
+  if (el('hero').dataset.state === 'error') {
+    // A failed try said so on the first page: back to waiting for a position.
+    setGps('wait', 'Acquiring…');
+    setGpsState('wait');
+    el('hero').dataset.state = 'waiting';
+    setText(el('np-meta'), 'Waiting for GPS…');
+  }
+  // Signs may have been drawn before the posts were in: now each sign can name one.
+  if (currentView === 'signs' && vms.data) renderSigns();
 
   populateRoads();
   el('g-road').addEventListener('change', onRoadChange);
@@ -933,30 +1122,14 @@ async function init() {
   try { if (localStorage.getItem('mp-use-heading') === '0') headingToggle.checked = false; } catch { /* default on */ }
   headingToggle.addEventListener('change', () => {
     try { localStorage.setItem('mp-use-heading', headingToggle.checked ? '1' : '0'); } catch { /* not saved */ }
-    if (!headingToggle.checked) lastConfirmed = null;
+    if (!headingToggle.checked) confirmMemory = null;
     P.live.update({ useHeading: headingToggle.checked });
     renderNearest();
+    showFixState(); // a different post may be nearer or further than the last
   });
 
-  // Vehicle lookup: uppercase as you type; Enter or the button submits.
-  if (config.features.vehicle) {
-    el('v-find').addEventListener('click', lookupVehicle);
-    el('v-reg').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); lookupVehicle(); }
-    });
-    el('v-reg').addEventListener('input', (e) => {
-      const c = e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, '');
-      if (c !== e.target.value) e.target.value = c;
-    });
-  }
-
-  // VMS signs: initial load, manual refresh, and a ~30 s live re-poll while
-  // the tab is open and on screen (the relay's edge cache absorbs the rest).
+  // VMS signs: the first load. (Refresh and the re-poll are set up above.)
   loadVms();
-  el('s-refresh').addEventListener('click', () => { P.haptic('light'); loadVms(); });
-  setInterval(() => {
-    if (currentView === 'signs' && document.visibilityState === 'visible') loadVms();
-  }, 30 * 1000);
 
   // Deep link: ?q=M27 13.6 A  -> open go-to, prefill and look up.
   const q = new URLSearchParams(location.search).get('q');
@@ -974,20 +1147,21 @@ async function init() {
   window.addEventListener('resize', refit);
   window.matchMedia('(orientation: landscape)').addEventListener('change', refit);
 
-  window.addEventListener('online', updateOnline);
-  window.addEventListener('offline', updateOnline);
-  updateOnline();
-
   // Keep the screen on while the app is open; re-acquire when it returns to
   // view (the lock is released when the page is hidden) or on first touch.
   P.keepAwake();
   P.onAppState((active) => {
     if (!active) return;
     P.keepAwake();
-    checkStale(); // a post from before the phone was put away must not look current
+    // A post from before the phone was put away must not look current: until
+    // a fresh fix arrives it is held to the moving limit, whatever its speed was.
+    awaitingFix = true;
+    showFixState();
+    // Nor may the Signs screen keep the ages it showed before.
+    if (currentView === 'signs') loadVms();
   });
   document.addEventListener('click', () => P.keepAwake(), { once: true });
-  setInterval(checkStale, 1000);
+  setInterval(showFixState, 1000);
 
   startGeo();
   const liveReady = initLive().catch((e) => diagnostics.note('error', `Live tracking set-up failed: ${e?.message || e}`));
@@ -1000,10 +1174,6 @@ async function init() {
     if (link === 'live/start') { switchView('nearest'); if (!liveActive) el('live-toggle').click(); }
     else if (link === 'live/stop') { if (liveActive) el('live-toggle').click(); }
   });
-
-  if (config.target === 'pwa' && 'serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
 }
 
 init();

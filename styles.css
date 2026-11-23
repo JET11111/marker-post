@@ -181,9 +181,14 @@ a { color: var(--accent-text); }
 
 /* ---------- screen header ---------- */
 .screen-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  display: flex; flex-wrap: wrap; align-items: center; align-content: center; justify-content: space-between; gap: 0 10px;
   min-height: 44px;
 }
+/* Under the title on every tab but the first and the map: "Offline", and the
+   GPS state when the position is not a current, good, real one. The line has
+   no height until a pill shows, so nothing moves when there is nothing to say. */
+.head-flags { display: flex; flex-wrap: wrap; gap: 0 8px; flex: 0 0 100%; }
+.head-flags .pill { margin: 6px 0 2px; }
 .screen-label {
   flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-size: 13px; line-height: 18px; font-weight: 600; letter-spacing: 0.06em;
@@ -297,9 +302,16 @@ a { color: var(--accent-text); }
 }
 .np-road-line { display: flex; align-items: baseline; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .np-road { font-size: clamp(30px, 9vw, 44px); font-weight: 800; color: var(--accent-text); letter-spacing: 0.5px; line-height: 1; }
-/* A stale or missing fix: the last post dims so it cannot be read as current. */
-.np-hero[data-state="stale"] .np-ref, .np-hero[data-state="stale"] .np-road { opacity: 0.45; }
+/* A stale or missing fix: the last post dims so it cannot be read as current.
+   So does a post read from a poor fix, or one a long way from the vehicle:
+   neither is a sure reading. The words that say which are beside it. */
+.np-hero[data-state="stale"] .np-ref, .np-hero[data-state="stale"] .np-road,
+.np-hero[data-state="poor"] .np-ref, .np-hero[data-state="poor"] .np-road,
+.np-hero[data-state="far"] .np-ref, .np-hero[data-state="far"] .np-road { opacity: 0.45; }
 .np-hero[data-state="waiting"] .np-ref, .np-hero[data-state="error"] .np-ref { color: var(--text-3); }
+/* With the last known position, the figures in the list are last known too.
+   app.js keeps body[data-gps] at "wait", "live", "stale" or "off". */
+body[data-gps="stale"] .np-info .np-val { opacity: 0.45; }
 
 .np-info { margin-top: 4px; border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden; background: var(--surface); }
 .np-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px; }
@@ -309,6 +321,8 @@ a { color: var(--accent-text); }
 .np-val { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: flex-end; column-gap: 6px; font-size: 20px; font-weight: 700; text-align: right; white-space: nowrap; }
 .np-sub { font-size: 14px; font-weight: 600; color: var(--text-2); }
 .np-meta { font-size: 13px; line-height: 18px; color: var(--text-3); text-align: center; }
+/* No fix for half a minute: the line gives the age in words, in the caution colour. */
+.np-meta.np-late { color: var(--warn-text); }
 /* A caution about the reading itself: the same quiet line, in the caution colour. */
 .np-note { margin-top: -8px; color: var(--warn-text); font-weight: 600; }
 .np-btn {
@@ -501,6 +515,10 @@ dialog.sheet::backdrop { background: var(--backdrop); animation: fade-in 0.2s li
   padding: 4px calc(var(--safe-right) + var(--pad)) calc(var(--safe-bottom) + 20px) calc(var(--safe-left) + var(--pad));
   overflow-y: auto; overscroll-behavior: contain;
 }
+/* A sheet too long for the screen scrolls: nothing in it gives up height to
+   make it fit. Without this, the parts that clip or scroll their own contents
+   (a group of rows, the diagnostics text) are squeezed first, down to nothing. */
+.sheet-body > * { flex-shrink: 0; }
 .sheet-body p { font-size: 15px; line-height: 21px; color: var(--text-2); }
 .sheet-body h3 { font-size: 17px; line-height: 22px; font-weight: 700; margin-top: 4px; }
 .section-label { padding: 4px 4px 0; font-size: 13px; line-height: 18px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2); }

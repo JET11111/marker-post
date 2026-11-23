@@ -5,7 +5,7 @@ import { haversine, bearing, angleDiff } from '../core/geo.js';
 import {
   computeTravelBearings, findNearest, nearestJunction, junctionLabel, nearestERA,
   buildRef, parseRef, roadLabel, roadClass, junctionSection, junctionPair, staleAfterMs, postContext,
-  headingUsable, fmtDist,
+  farContext, accuracyUsable, MAX_USABLE_ACCURACY_M, headingUsable, fmtDist,
 } from '../core/posts.js';
 
 const json = async (name) => JSON.parse(await readFile(new URL(`../data/${name}`, import.meta.url), 'utf8'));
@@ -295,13 +295,31 @@ test('the line under a post on the phone describes the post and says what its di
   for (const p of posts) assert.doesNotMatch(postContext(p, sections, junctions), /\b(north|south|east|west)bound\b/i);
 });
 
+test('far from every post the phone is given the distance instead, and nothing from a fix too rough to use', async () => {
+  // The same words, digit for digit, as the phone's own trackers write (their tests use these figures too).
+  assert.equal(farContext(333.58), 'Nearest recorded post · 334 m away');
+  assert.equal(farContext(1240), 'Nearest recorded post · 1.24 km away');
+  assert.equal(farContext(12400), 'Nearest recorded post · 12.4 km away');
+  // No recorded post has a line of its own that could be taken for it.
+  const posts = await loadPosts(), junctions = await json('junctions.json'), sections = await loadSections();
+  for (const p of posts) assert.doesNotMatch(postContext(p, sections, junctions), /^Nearest recorded post/);
+
+  // A fix worse than 100 m is not a position for the widgets. One with no figure is accepted.
+  assert.equal(MAX_USABLE_ACCURACY_M, 100);
+  assert.equal(accuracyUsable(5), true);
+  assert.equal(accuracyUsable(100), true, 'exactly 100 m is still used');
+  assert.equal(accuracyUsable(100.5), false);
+  assert.equal(accuracyUsable(1500), false);
+  for (const none of [null, undefined, NaN]) assert.equal(accuracyUsable(none), true, String(none));
+});
+
 test('a position goes stale after 15 s moving, 30 s at unknown speed, 2 minutes standing', () => {
   assert.equal(staleAfterMs(31), 15000);
   assert.equal(staleAfterMs(0), 120000);
   assert.equal(staleAfterMs(2.5), 120000, 'at the threshold the heading is not trusted either');
   assert.equal(staleAfterMs(null), 30000);
   assert.equal(staleAfterMs(undefined), 30000);
-  assert.equal(staleAfterMs(NaN), 30000)
+  assert.equal(staleAfterMs(NaN), 30000);
 });
 
 test('nearest junction, ERA and labels behave as before', async () => {
