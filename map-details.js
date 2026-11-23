@@ -1,7 +1,13 @@
 /** Read-only map inspection. Distances are straight-line to recorded points.
  * A spatial association is never evidence of access, direction of travel,
  * current availability, or a field-verified layout. No routing is used here.
+ *
+ * The last part of the file is what the map may say about the phone's own
+ * position (positionStatus). Like the rest it is plain logic with no page
+ * behind it, so the tests can run it.
  */
+import { positionStale, fmtClock } from './core/posts.js';
+
 const RADIUS_M = 6371008.8;
 const radians = value => value * Math.PI / 180;
 const upper = value => String(value ?? '').trim().toUpperCase();
@@ -33,6 +39,20 @@ function metrics(link) {
   const result = { cumulative, lengthM: cumulative.at(-1) };
   geometryCache.set(link, result);
   return result.lengthM > 0 ? result : null;
+}
+
+/**
+ * National Highways' description of a road section, in the officers' own
+ * terms: the compass word ("eastbound") gives way to the carriageway letter
+ * from the same record ("carriageway A"). Only where the record has an A or a
+ * B. A slip or link road's description is left exactly as supplied, because
+ * the record gives no letter to put in its place.
+ */
+export function sectionText(link) {
+  const text = String(link?.description ?? '').trim();
+  const letter = String(link?.carriageway ?? '').trim().toUpperCase();
+  if (letter !== 'A' && letter !== 'B') return text;
+  return text.replace(/\b(?:north|south|east|west)bound\b/gi, `carriageway ${letter}`).replace(/\s{2,}/g, ' ').trim();
 }
 
 /** Projection uses geometry length, not the source's lane or post chainage. */
@@ -202,10 +222,17 @@ function nearbyResult(feature, coordinate, association, sources) {
     layoutVerifiedAt: feature.layoutVerifiedAt || null };
 }
 
-/** Accepts the feature objects already used by map.mjs. All result distances
+/** Accepts the feature objects already used by map.js. All result distances
  * refer to selection.coordinate, not a snapped road coordinate. Nearby items
  * never mean ahead, reachable, open, or vacant. No record within the limit is
  * represented by null, not evidence that no bay/post exists.
+ *
+ * For a selected bay, its own entry (nearestEra or nearestLayby) also says how
+ * it was tied to a road: matchedAssociation is 'same-carriageway' when the
+ * records do it (the bay's own attributes, or the road its link joins),
+ * 'nearby-unverified' when only the nearest road's geometry does, and null
+ * when nothing does. Anything but the first is a provisional match, and a
+ * road or carriageway shown from it must be labelled unverified.
  */
 export function getLocationDetails({ selection, links = [], postFeatures = [], areas = [], sources = {}, maxNearbyM = 30000 } = {}) {
   if (!selection || !coordinateValid(selection.coordinate)) return { section: null, sectionAmbiguous: false,
@@ -234,7 +261,8 @@ export function getLocationDetails({ selection, links = [], postFeatures = [], a
     if (selection.kind === kind) {
       const attachment = attachmentFor(selection, context);
       return { ...nearbyResult(selection, selection.coordinate, 'selected-record', sources),
-        matchedRoad: attachment?.road || null, matchedCarriageway: attachment?.carriageway || null };
+        matchedRoad: attachment?.road || null, matchedCarriageway: attachment?.carriageway || null,
+        matchedAssociation: attachment?.association || null };
     }
     if (!section) return null;
     const possible = [];
@@ -254,4 +282,38 @@ export function getLocationDetails({ selection, links = [], postFeatures = [], a
   return { section, sectionAmbiguous, layout: section && section.association !== 'interchange-unverified' ?
     layoutAtSection(section.link, selection.coordinate) : unknownLayout(),
     nearestPost, nearestLayby: nearestArea('layby'), nearestEra: nearestArea('era') };
+}
+
+/** What the map may say about the phone's position. `takenAt` is when the fix
+ * was taken, in milliseconds (0 when that is not known). Whether it is still
+ * the current position is decided by positionStale() in core/posts.js: the
+ * one rule, which the Nearest page goes by too. `unseen` is handed to that
+ * rule as it is: true for a position from before the app was put away.
+ *
+ *   current  still the current position
+ *   label    the words drawn under the dot; '' when a real, current fix needs none
+ *   notice   the sentence shown once "My location" has moved the map to it
+ *
+ * A position that is no longer current is only ever called the last known
+ * one, with the time it was taken. A position made up for desk testing is
+ * always called a simulated position, and no accuracy is given for it. For a
+ * real one an accuracy is given only when the phone supplied a figure.
+ */
+export function positionStatus(position, takenAt, now = Date.now(), unseen = false) {
+  const current = !positionStale(takenAt, position.speed, now, unseen);
+  const since = !current && takenAt > 0 ? fmtClock(takenAt, now) : '';
+  if (position.simulated) {
+    return { current,
+      label: current ? 'Simulated position' : `Simulated position · last known${since ? ` ${since}` : ''}`,
+      notice: 'Simulated position. Not your real location.' };
+  }
+  if (!current) {
+    return { current,
+      label: since ? `Last known ${since}` : 'Last known position',
+      notice: `Showing your last known position${since ? `, ${since}` : ''}. Check the carriageway.` };
+  }
+  const measured = Number.isFinite(position.accuracy) && position.accuracy > 0;
+  return { current, label: '',
+    notice: measured ? `Location accuracy ±${Math.round(position.accuracy)} m. Check the carriageway.`
+      : 'Location found, accuracy unknown. Check the carriageway.' };
 }

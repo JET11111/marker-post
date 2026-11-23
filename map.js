@@ -6,7 +6,7 @@
 // is a straight-line distance to a recorded point, and anything the records
 // do not establish stays "Unknown" or is labelled unverified.
 
-import { getLocationDetails } from './map-details.js';
+import { getLocationDetails, positionStatus, sectionText } from './map-details.js';
 import * as P from './platform.js';
 import { loadSnapshot } from './data.js';
 import { isDark, onThemeChange, setTheme, themeChoice } from './theme.js';
@@ -24,6 +24,11 @@ const dateLabel = (value) => (value && Number.isFinite(new Date(value).getTime()
 const ageDays = (value) => (value ? Math.max(0, (Date.now() - new Date(value).getTime()) / 86400000) : Infinity);
 const midpoint = (coords) => coords?.[Math.floor(coords.length / 2)];
 const megabytes = (bytes) => `${Math.round(bytes / 1048576)} MB`;
+// When a fix was taken, never later than now: the phone's GPS clock can run
+// ahead of its own, and the Nearest page allows for that in the same way.
+// A fix that carries no time counts as taken at a time unknown (0), which is
+// never current.
+const takenAt = (p) => (p ? Math.min(Date.now(), p.timestamp || 0) : 0);
 
 // MapLibre zoom levels (one lower than the old raster map's for the same view).
 const ZOOM = { start: 9, min: 6.5, max: 18, posts: 11, junctions: 10, select: 14, locate: 14, roadFocus: 13 };
@@ -31,8 +36,21 @@ const PATCH_BOUNDS = [[-1.95, 50.72], [-0.73, 51.4]];
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const LAYERS_KEY = 'mp-map-layers';
 const DEFAULT_LAYERS = { network: true, posts: true, era: true, layby: true, junction: false, streets: true };
+// How often (ms) a street map that would not open is tried again while the app is in view.
+const STREETS_RETRY_MS = 30000;
+// How the road network snapshot is dated and checked, for every load of it.
+const NETWORK_SNAPSHOT = {
+  stamp: (d) => d.fetchedAt,
+  validate: (d) => Boolean(d && d.schemaVersion === 1 && Array.isArray(d.links) && d.links.length && d.sources),
+};
 
 let instance;
+/**
+ * Start the map, once. `posts` and `junctions` are the app's records and
+ * `position` is its latest fix, if it has one. `positionUnseen` says whether
+ * that fix is from before the app was last put away with none since (see the
+ * NetworkMap constructor). Later fixes arrive as "markerpost:position" events.
+ */
 export async function initMap(options) {
   if (instance) return instance;
   const maplibregl = await import('./vendor/maplibre-gl/maplibre-gl.js');
@@ -52,9 +70,16 @@ export async function initMap(options) {
 }
 
 class NetworkMap {
-  constructor(maplibregl, { posts, junctions, position }) {
+  constructor(maplibregl, { posts, junctions, position, positionUnseen }) {
     this.gl = maplibregl;
-    this.posts = posts || []; this.junctions = junctions || []; this.position = position;
+    this.posts = posts || []; this.junctions = junctions || [];
+    this.position = position || null; this.positionAt = takenAt(position);
+    // Whether that position is from before the app was last put away, with no
+    // fix since: it is then held to the shortest limit until one arrives (see
+    // bind). The app knows and says so. If it does not say, the answer is
+    // taken to be yes, which errs on the side of calling the position old.
+    this.positionUnseen = positionUnseen === undefined ? Boolean(position) : Boolean(positionUnseen);
+    this.basemap = { available: false }; // until the street map has been opened
     this.selection = null;
     this.layersOn = { ...DEFAULT_LAYERS };
     try { Object.assign(this.layersOn, JSON.parse(localStorage.getItem(LAYERS_KEY) || '{}')); } catch { /* defaults */ }
@@ -217,16 +242,31 @@ class NetworkMap {
     }));
     $('map-offline-action').onclick = () => this.toggleOffline();
 
-    window.addEventListener('markerpost:position', (e) => { this.position = e.detail; this.renderGPS(); });
+    window.addEventListener('markerpost:position', (e) => this.setPosition(e.detail));
     window.addEventListener('offline', () => this.updateSourceLabel());
-    window.addEventListener('online', () => this.updateSourceLabel());
+    // Back in signal: a street map that could not be opened before may open now.
+    window.addEventListener('online', () => { this.updateSourceLabel(); this.retryStreets(); this.retryNetwork(); });
     // Android back: close the search results or the detail card before leaving the map.
     window.addEventListener('markerpost:back', (e) => {
       if (!$('map-results').classList.contains('hidden')) { this.hideResults(); $('map-search').blur(); e.preventDefault(); }
       else if (this.selection) { this.closeDetail(); e.preventDefault(); }
     });
-    P.onAppState((active) => { if (active) this.show(); });
+    // iOS can stop the map's background workers while the app is out of sight,
+    // without saying so. MapLibre checks them when asked, and restarts any that
+    // are slow to answer. So ask on the way back to the front and at no other
+    // time: asked while the first tiles are being read, healthy workers would
+    // be thrown away and the whole map drawn twice.
+    P.onAppState((active) => {
+      if (!active) return;
+      try { Promise.resolve(this.gl.getGlobalDispatcher?.().ensureWorkers?.()).catch(() => {}); } catch { /* older library: not needed */ }
+      // A position from before the app was put away is held to the shortest
+      // limit until a new fix arrives: the vehicle may have driven off since.
+      this.positionUnseen = true;
+      this.show();
+    });
     onThemeChange(() => this.applyStyle());
+    // The attribution and the toast keep clear of the card however tall it becomes.
+    if ('ResizeObserver' in window) new ResizeObserver(() => this.measureSheet()).observe($('map-sheet'));
 
     map.on('click', (e) => this.onMapClick(e));
     map.on('dragstart', () => { $('map-search').blur(); this.hideResults(); });
@@ -234,15 +274,26 @@ class NetworkMap {
     map.on('pitch', () => this.paintCompass());
     // Without this handler MapLibre prints its own errors; with it, they are ours to report.
     map.on('error', (e) => this.onMapError(e));
-    map.on('webglcontextlost', () => diagnostics.count('graphics-context-lost'));
-    map.on('webglcontextrestored', () => diagnostics.count('graphics-context-restored'));
+    // When the system takes the graphics context away, MapLibre keeps a copy of
+    // the style and puts that copy back afterwards. A change of appearance made
+    // in between would be undone, so applyStyle() holds it until the context is back.
+    map.on('webglcontextlost', () => { this.contextLost = true; diagnostics.count('graphics-context-lost'); });
+    map.on('webglcontextrestored', () => {
+      this.contextLost = false;
+      diagnostics.count('graphics-context-restored');
+      if (this.styleHeld) { this.styleHeld = false; this.applyStyle(); }
+    });
   }
 
   // ------------------------------------------------------------------ start
 
   async start() {
     const gl = this.gl;
-    this.basemap = await openBasemap(gl);
+    // The street map opens beside everything else: the network and the marker
+    // posts must never wait for it. A copy on the device opens in a few
+    // milliseconds, so allow it that long and the map need not be drawn twice.
+    const streets = this.openStreets();
+    await Promise.race([streets, new Promise((resolve) => setTimeout(resolve, 400))]);
     try {
       this.map = new gl.Map({
         container: 'network-map',
@@ -263,37 +314,94 @@ class NetworkMap {
         : 'The map could not start. The nearest post, signs and go-to tools still work.';
       this.host.replaceChildren(h('div', { class: 'map-loading', role: 'status', text }));
       console.error('Map:', err);
-      throw err;
+      // The message above is the accurate one: tell the caller not to replace it.
+      const failure = err instanceof Error ? err : new Error(String(err));
+      failure.messageShown = true;
+      throw failure;
     }
     const map = this.map;
     map.addControl(new gl.ScaleControl({ unit: 'metric', maxWidth: 110 }), 'bottom-right');
     map.addControl(new gl.ScaleControl({ unit: 'imperial', maxWidth: 110 }), 'bottom-right');
     // Fires for the first style, after a theme change, and after the system
-    // gives the graphics context back: the app layers are re-added each time.
+    // gives the graphics context back: each time the app's layers are added,
+    // or, in a style that MapLibre has put back itself, brought up to date.
     map.on('style.load', () => this.addOverlays());
     this.bind();
     this.paintAttribution();
     this.paintCompass();
-    if (!this.basemap.available) {
+    streets.then(() => {
+      if (this.basemap.available || this.streetsOpening) return;
       this.toast('Street background unavailable. Network records remain visible.');
       diagnostics.note('warn', `Street map unavailable: ${this.basemap.reason || 'no archive'}`);
-    }
+    });
     await this.load();
+  }
+
+  /**
+   * Open the street map, or open it again, and draw it once it is there.
+   * Resolves when the attempt is over, whatever came of it. Only the newest
+   * attempt may change the map: an older one that finishes late is ignored.
+   */
+  openStreets() {
+    const attempt = (this.streetsAttempt || 0) + 1;
+    this.streetsAttempt = attempt;
+    const opening = openBasemap(this.gl)
+      .catch((e) => ({ available: false, reason: String(e?.message || e) }))
+      .then((found) => {
+        if (attempt !== this.streetsAttempt) return;
+        this.streetsOpening = null;
+        const changed = found.available !== this.basemap.available || found.url !== this.basemap.url;
+        this.basemap = found;
+        if (changed) this.applyStyle();
+        if ($('map-data-dialog')?.open) this.renderSources(); // its street map row has a new answer
+        // Signal often comes back without the phone ever having said it was
+        // offline, so a street map that did not open is tried again by the
+        // clock as well. Out of sight or offline the clock stops: coming back
+        // to the front, or back online, starts it again (see bind).
+        clearTimeout(this.streetsTimer);
+        if (!found.available) {
+          this.streetsTimer = setTimeout(() => {
+            if (this.map && document.visibilityState !== 'hidden' && navigator.onLine !== false) this.retryStreets();
+          }, STREETS_RETRY_MS);
+        }
+      })
+      .catch((e) => diagnostics.note('error', `Street map: ${e?.message || e}`));
+    this.streetsOpening = opening;
+    return opening;
+  }
+
+  /** After a failure, try the street map again: signal is back, the tab was reopened, or some time has passed. */
+  retryStreets() {
+    if (this.basemap.available || this.streetsOpening) return;
+    this.openStreets().then(() => {
+      if (this.basemap.available) diagnostics.note('info', 'Street map opened on a later attempt');
+    });
   }
 
   style() {
     $('network-map').style.background = PALETTE[isDark() ? 'dark' : 'light'].land;
-    return buildStyle({ dark: isDark(), basemap: this.basemap?.available ? this.basemap : null, streets: this.layersOn.streets });
+    return buildStyle({ dark: isDark(), basemap: this.basemap.available ? this.basemap : null, streets: this.layersOn.streets });
   }
   applyStyle() {
     if (!this.map) return;
+    // Held while the graphics context is lost (see bind): applied when it returns.
+    if (this.contextLost) { this.styleHeld = true; return; }
     this.map.setStyle(this.style(), { diff: false }); // 'style.load' re-adds the app layers
     this.paintAttribution();
   }
 
   onMapError(e) {
     const message = String(e?.error?.message || e?.error || '');
-    // A tile the archive does not hold is normal (detail is only kept near the network).
+    // A tile the archive does not hold is normal: street detail is only kept
+    // near the network. MapLibre draws the overview tile in its place, but
+    // looks for that tile only the next time it goes over its sources, and on
+    // a map that is standing still nothing makes it. Setting a layout property
+    // does (even to the value it already has), so the gap fills at once
+    // instead of at the next touch.
+    if (e?.tile && /Tile not found/.test(message)) {
+      if (this.map.getLayer('mp-gps-puck')) this.map.setLayoutProperty('mp-gps-puck', 'visibility', 'visible');
+      return;
+    }
     if (/tile|404|aborted|AbortError/i.test(message)) return;
     console.error('Map:', e?.error || e);
     diagnostics.note('error', `Map: ${message || 'unknown error'}`);
@@ -345,7 +453,13 @@ class NetworkMap {
     this.addImages(c);
     // Network lines go beneath the base map's labels so place names stay readable.
     const firstLabel = map.getLayersOrder().find((id) => map.getLayer(id)?.type === 'symbol');
-    const source = (id, data, extra = {}) => { if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data, promoteId: 'id', ...extra }); };
+    // A style that MapLibre put back after losing the graphics context already
+    // has these sources and layers. Its sources hold what they held when the
+    // context went, so they are given the data as it stands now.
+    const source = (id, data, extra = {}) => {
+      const present = map.getSource(id);
+      if (present) present.setData(data); else map.addSource(id, { type: 'geojson', data, promoteId: 'id', ...extra });
+    };
     const layer = (def, before) => { if (!map.getLayer(def.id)) map.addLayer(def, before); };
     const byZoom = (stops) => ['interpolate', ['exponential', 1.5], ['zoom'], ...stops.flatMap(([z, main, slip]) => [z, ['case', ['get', 'slip'], slip, main]])];
     const round = { 'line-cap': 'round', 'line-join': 'round' };
@@ -409,8 +523,20 @@ class NetworkMap {
       paint: { 'line-color': c.you, 'line-opacity': 0.5, 'line-width': 1 } });
     layer({ id: 'mp-selection-ring', type: 'circle', source: 'mp-selection',
       paint: { 'circle-radius': 11, 'circle-color': c.selection, 'circle-opacity': 0.25, 'circle-stroke-color': c.selectionRing, 'circle-stroke-width': 2.5 } });
+    // 'visibility' is spelt out because onMapError() sets it again to make
+    // MapLibre go over its tiles: that must not change anything here.
     layer({ id: 'mp-gps-puck', type: 'circle', source: 'mp-gps', filter: ['==', ['get', 'kind'], 'puck'],
+      layout: { visibility: 'visible' },
       paint: { 'circle-radius': 7, 'circle-color': ['case', ['get', 'fresh'], c.you, c.youStale], 'circle-stroke-color': c.youRing, 'circle-stroke-width': 2.5 } });
+    // The words that go with the dot ("Last known 14:32", "Simulated position"):
+    // what it means is never left to its colour alone.
+    layer({ id: 'mp-gps-label', type: 'symbol', source: 'mp-gps', filter: ['==', ['get', 'kind'], 'puck'],
+      layout: {
+        'text-field': ['get', 'label'], 'text-font': FONT.medium, 'text-size': 13,
+        'text-anchor': 'top', 'text-offset': [0, 1],
+        'text-allow-overlap': true, 'text-ignore-placement': true,
+      },
+      paint: { 'text-color': c.youText, 'text-halo-color': c.land, 'text-halo-width': 2 } });
 
     this.applyVisibility();
     this.applySelection();
@@ -445,13 +571,29 @@ class NetworkMap {
     this.setData('mp-selection', f ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { id: 0 }, geometry: { type: 'Point', coordinates: f.coordinate } }] } : EMPTY);
   }
 
+  /** The phone's position: a fix handed on by the app, or one asked for by the locate button. */
+  setPosition(p) {
+    this.position = p || null;
+    this.positionAt = takenAt(p);
+    // Back from the background (see bind), only a fix that is itself new ends the wait.
+    if (p && this.positionUnseen && positionStatus(p, this.positionAt, Date.now(), true).current) this.positionUnseen = false;
+    this.renderGPS();
+  }
+
+  /**
+   * Draw the position dot. A position stays current only for as long as the
+   * rule in positionStatus() allows; after that the dot turns grey, loses its
+   * accuracy ring and is labelled "Last known" with the time.
+   */
   renderGPS() {
+    clearTimeout(this.gpsTimer);
     const p = this.position;
     if (!this.map || !this.map.getSource('mp-gps')) return;
     if (!p) { this.setData('mp-gps', EMPTY); return; }
-    const fresh = Date.now() - (p.timestamp || 0) < 120000;
-    const features = [{ type: 'Feature', properties: { id: 1, kind: 'puck', fresh }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } }];
-    if (Number.isFinite(p.accuracy) && p.accuracy > 0) {
+    const { current, label } = positionStatus(p, this.positionAt, Date.now(), this.positionUnseen);
+    if (current) this.gpsTimer = setTimeout(() => this.watchGPS(), 1000);
+    const features = [{ type: 'Feature', properties: { id: 1, kind: 'puck', fresh: current, label }, geometry: { type: 'Point', coordinates: [p.lng, p.lat] } }];
+    if (current && Number.isFinite(p.accuracy) && p.accuracy > 0) {
       // The accuracy radius drawn to scale on the ground.
       const ring = [], dLat = p.accuracy / 110540, dLng = p.accuracy / (111320 * Math.cos((p.lat * Math.PI) / 180));
       for (let i = 0; i <= 48; i++) {
@@ -463,38 +605,35 @@ class NetworkMap {
     this.setData('mp-gps', { type: 'FeatureCollection', features });
   }
 
+  /**
+   * When fixes stop, nothing else would redraw the dot. So while it is drawn
+   * as current the rule is asked again once a second, as on the Nearest page,
+   * and the dot is redrawn as soon as the answer changes.
+   */
+  watchGPS() {
+    const p = this.position;
+    if (p && positionStatus(p, this.positionAt, Date.now(), this.positionUnseen).current) {
+      this.gpsTimer = setTimeout(() => this.watchGPS(), 1000);
+    } else {
+      this.renderGPS();
+    }
+  }
+
   // ------------------------------------------------------------------- data
 
   async load({ refresh = true } = {}) {
     try {
       const { data, origin } = await loadSnapshot('network.json', {
+        ...NETWORK_SNAPSHOT,
         refresh,
-        stamp: (d) => d.fetchedAt,
-        validate: (d) => Boolean(d && d.schemaVersion === 1 && Array.isArray(d.links) && d.links.length && d.sources),
         timeoutMs: 20000,
+        // Today's copy may arrive after the map has stopped waiting for it and
+        // drawn an earlier one. It is drawn when it lands.
+        onLate: (late) => this.useNetwork(late.data, late.origin),
       });
-      // "saved" and "bundled" both mean this is not a copy downloaded just now.
-      this.refreshFailed = origin !== 'network';
-      this.upstreamNewer = false;
-      this.network = data;
-      this.linkById = new Map(data.links.map((l) => [l.id, l]));
-      this.features = (data.areas || []).map((a) => ({
-        ...a,
-        title: a.kind === 'layby' ? 'Lay-by' : 'Emergency area',
-        road: a.road || this.linkById.get(a.linkId)?.road,
-        carriageway: a.carriageway || this.linkById.get(a.linkId)?.carriageway,
-        link: this.linkById.get(a.linkId),
-        coordinate: a.coordinate || midpoint(a.coordinates), sourceKey: a.source || 'emergencyAreas',
-      })).filter((f) => f.coordinate?.length === 2);
-      this.geo.network = this.networkGeo();
-      this.geo.areas = this.areasGeo();
-      this.setData('mp-network', this.geo.network);
-      this.setData('mp-areas', this.geo.areas);
-      if (this.selection) this.renderDetail(); else this.closeDetail();
-      this.updateSourceLabel();
-      this.checkSourceDates();
+      this.useNetwork(data, origin);
     } catch (error) {
-      this.refreshFailed = true;
+      this.notRefreshed = true;
       if (this.network) {
         this.checkStatus = 'Refresh failed. The last successfully loaded, dated snapshot is still displayed.';
         if (this.selection) this.renderDetail();
@@ -505,22 +644,75 @@ class NetworkMap {
         h('div', { class: 'map-sheet-body' },
           h('p', { class: 'callout', text: 'The network snapshot could not load. Marker posts can still be explored; road details and bays are unavailable.' }),
           h('button', { class: 'btn btn-secondary', type: 'button', text: 'Retry network download', onclick: () => this.load() })));
-      show($('map-sheet'), true);
+      this.showSheet(true);
       this.updateSourceLabel();
       console.error('Network map:', error);
     }
   }
 
+  /** Draw a road network snapshot. `origin` is what loadSnapshot said of it. */
+  useNetwork(data, origin) {
+    // (A late copy can be handed over twice when two loads shared one download.)
+    if (data === this.network && !this.notRefreshed) return;
+    // "saved" and "bundled" both mean this is not a copy downloaded just now:
+    // there was no connection, it was too slow to wait for, or it failed.
+    this.notRefreshed = origin !== 'network';
+    this.upstreamNewer = false;
+    this.network = data;
+    this.linkById = new Map(data.links.map((l) => [l.id, l]));
+    this.features = (data.areas || []).map((a) => ({
+      ...a,
+      title: a.kind === 'layby' ? 'Lay-by' : 'Emergency area',
+      road: a.road || this.linkById.get(a.linkId)?.road,
+      carriageway: a.carriageway || this.linkById.get(a.linkId)?.carriageway,
+      link: this.linkById.get(a.linkId),
+      coordinate: a.coordinate || midpoint(a.coordinates), sourceKey: a.source || 'emergencyAreas',
+    })).filter((f) => f.coordinate?.length === 2);
+    this.geo.network = this.networkGeo();
+    this.geo.areas = this.areasGeo();
+    this.setData('mp-network', this.geo.network);
+    this.setData('mp-areas', this.geo.areas);
+    if (this.selection) this.renderDetail(); else this.closeDetail();
+    this.updateSourceLabel();
+    this.checkSourceDates();
+    // An earlier copy is on screen: ask again in half a minute without being asked.
+    clearTimeout(this.networkRetryTimer);
+    if (this.notRefreshed) this.networkRetryTimer = setTimeout(() => this.retryNetwork(), 30000);
+  }
+
+  /**
+   * The road data on screen is an earlier copy, because today's was too slow
+   * or failed. Ask for today's again: half a minute after such a load, each
+   * time the tab is shown and when the connection comes back; at most once a
+   * minute, only while online, and no more once today's copy is on screen.
+   */
+  retryNetwork() {
+    if (!this.network || !this.notRefreshed || this.networkRetrying || navigator.onLine === false) return;
+    if (Date.now() - (this.networkTriedAt || 0) < 60000) return;
+    this.networkTriedAt = Date.now();
+    this.networkRetrying = true;
+    loadSnapshot('network.json', {
+      ...NETWORK_SNAPSHOT,
+      // The copy on the device is on screen already: only a new download will do.
+      freshOnly: true,
+      onLate: (late) => this.useNetwork(late.data, late.origin),
+    }).then((fresh) => { if (fresh) this.useNetwork(fresh.data, fresh.origin); }, () => {})
+      .finally(() => { this.networkRetrying = false; });
+  }
+
+  /** The Map tab was opened, or the app came back to the front. */
   show() {
     if (!this.map) return;
     requestAnimationFrame(() => this.map.resize());
-    // iOS stops a page's background workers without telling it; wake them.
-    try { this.gl.getGlobalDispatcher?.().ensureWorkers?.(); } catch { /* older library: not needed */ }
+    // A position that went out of date while the map was out of sight must not come back looking current.
+    this.renderGPS();
+    this.retryStreets();
+    this.retryNetwork();
     if (this.network && (!this.lastSourceCheck || Date.now() - this.lastSourceCheck > 300000)) this.checkSourceDates();
   }
 
   fitPatch() {
-    this.closeDetail();
+    this.closeDetail({ animate: false });
     this.map.fitBounds(PATCH_BOUNDS, { padding: 30, duration: 400, essential: true });
   }
 
@@ -568,24 +760,40 @@ class NetworkMap {
   }
 
   async locate() {
-    const recent = this.position && Date.now() - (this.position.timestamp || 0) < 10000;
+    const recent = this.position && Date.now() - this.positionAt < 10000;
     try {
-      if (!recent) { this.toast('Finding your position…'); this.position = await P.getCurrentPosition(); this.renderGPS(); }
+      if (!recent) { this.toast('Finding your position…'); this.setPosition(await P.getCurrentPosition()); }
       const p = this.position;
       this.map.easeTo({ center: [p.lng, p.lat], zoom: Math.max(ZOOM.locate, this.map.getZoom()), duration: 500, essential: true });
-      this.toast(`Location accuracy ±${Math.round(p.accuracy || 0)} m. Check the carriageway.`);
+      // The same account of it as the words under the dot: a made-up position
+      // or a last known one is called that, and no accuracy is invented.
+      this.toast(positionStatus(p, this.positionAt, Date.now(), this.positionUnseen).notice);
     } catch {
       this.toast('Location unavailable. Search for a marker post or tap the map instead.');
     }
   }
 
-  closeDetail() {
+  /** Show or hide the card. While it is open the attribution and the toast keep clear of it (map.css). */
+  showSheet(on) {
+    show($('map-sheet'), on);
+    this.host.classList.toggle('sheet-open', on);
+    if (on) this.measureSheet();
+  }
+  measureSheet() {
+    this.host.style.setProperty('--map-sheet-height', `${$('map-sheet').offsetHeight + 8}px`);
+  }
+
+  /**
+   * Close the card and give the map back the room it took. Pass animate: false
+   * when another camera move follows at once: that move is worked out from
+   * the room the map has at that moment, and would cut an animated change short.
+   */
+  closeDetail({ animate = true } = {}) {
     this.selection = null;
     this.applySelection();
-    show($('map-sheet'), false);
-    this.host.classList.remove('has-selection');
+    this.showSheet(false);
     show($('map-hint'), true);
-    if (this.map) this.map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 200 });
+    if (this.map) this.map.easeTo({ padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: animate ? 200 : 0 });
   }
 
   select(feature, move = true) {
@@ -595,9 +803,8 @@ class NetworkMap {
     this.renderDetail();
     this.applySelection();
     const sheet = $('map-sheet');
-    show(sheet, true); this.host.classList.add('has-selection'); show($('map-hint'), false);
+    this.showSheet(true); show($('map-hint'), false);
     sheet.scrollTop = 0;
-    this.host.style.setProperty('--map-sheet-height', `${sheet.offsetHeight + 8}px`);
     P.haptic('light');
     // Keep the selection in the clear area above the card.
     const map = this.map, wide = window.matchMedia('(min-width: 701px), (orientation: landscape) and (max-height: 540px)').matches;
@@ -654,7 +861,7 @@ class NetworkMap {
     h('span', { class: 'map-result-badge', text: f.kind === 'post' ? 'POST' : f.kind.toUpperCase() }),
     h('span', {},
       h('strong', { text: f.title }),
-      h('small', { text: f.link?.description || (f.kind === 'road' ? 'Show this road on the map' : `${roadName(f.road)}${f.carriageway ? ` · carriageway ${f.carriageway}` : ''}`) })))));
+      h('small', { text: sectionText(f.link) || (f.kind === 'road' ? 'Show this road on the map' : `${roadName(f.road)}${f.carriageway ? ` · carriageway ${f.carriageway}` : ''}`) })))));
   }
 
   focusRoad(road) {
@@ -663,7 +870,7 @@ class NetworkMap {
     for (const l of links) for (const [lng, lat] of l.coordinates) {
       west = Math.min(west, lng); east = Math.max(east, lng); south = Math.min(south, lat); north = Math.max(north, lat);
     }
-    $('map-search').blur(); this.closeDetail();
+    $('map-search').blur(); this.closeDetail({ animate: false });
     if (Number.isFinite(west)) this.map.fitBounds([[west, south], [east, north]], { padding: 40, maxZoom: ZOOM.roadFocus, duration: 500, essential: true });
   }
 
@@ -677,8 +884,15 @@ class NetworkMap {
     const post = f.kind === 'post' ? { feature: f, distanceM: 0 } : detail.nearestPost;
     const isBay = ['layby', 'era'].includes(f.kind);
     const road = f.road || link?.road, carriageway = isBay ? link?.carriageway : f.carriageway || link?.carriageway;
+    // A bay's heading takes its carriageway (and an emergency area its road
+    // too) from the road section matched to it. Emergency area records name
+    // neither, so theirs is only the nearest road by position: a provisional
+    // match, and the card must say so wherever it shows it.
+    const own = f.kind === 'era' ? detail.nearestEra : f.kind === 'layby' ? detail.nearestLayby : null;
+    const provisional = Boolean(isBay && link && own?.matchedAssociation !== 'same-carriageway');
     const association = (item) => (item?.association === 'same-carriageway' ? `carriageway ${item.matchedCarriageway || carriageway || ''}`.trim()
-      : item?.association === 'selected-record' ? 'selected record' : 'carriageway unverified');
+      : item?.association !== 'selected-record' ? 'carriageway unverified'
+        : provisional ? 'selected record · carriageway unverified' : 'selected record');
     const chevron = () => icon(ICONS.chevron, { size: 16, stroke: 2.2 });
 
     const bayRow = (item, label) => (item
@@ -698,7 +912,7 @@ class NetworkMap {
     $('map-panel').replaceChildren(
       h('div', { class: 'map-sheet-heading' },
         h('div', {},
-          h('div', { class: 'section-label map-detail-type', text: `${road ? roadName(road) : 'Map point'}${carriageway ? ` · carriageway ${carriageway}` : ''}` }),
+          h('div', { class: 'section-label map-detail-type', text: `${road ? roadName(road) : 'Map point'}${carriageway ? ` · carriageway ${carriageway}` : ''}${provisional ? ' · unverified match' : ''}` }),
           h('h2', { class: 'map-reference', text: title })),
         h('button', { class: 'map-close', type: 'button', 'aria-label': 'Close details', onclick: () => this.closeDetail() }, icon(ICONS.close, { size: 18, stroke: 2.4 }))),
       h('div', { class: 'map-sheet-body' },
@@ -717,7 +931,7 @@ class NetworkMap {
         bayRow(detail.nearestLayby, 'Lay-by record'),
         h('details', { class: 'map-record-notes' },
           h('summary', { text: 'Record details and dates' }),
-          h('p', { class: 'map-subtext', text: link?.description || 'No unambiguous road section matched. Tap the correct road line for its recorded layout.' }),
+          h('p', { class: 'map-subtext', text: link?.description ? `National Highways' description: ${link.description}` : 'No unambiguous road section matched. Tap the correct road line for its recorded layout.' }),
           detail.section?.association === 'interchange-unverified'
             ? h('p', { class: 'callout', text: 'Interchange alignment is unverified. Lane and shoulder details remain unknown.' }) : null,
           h('p', { class: 'map-subtext', text: `Road source: ${dateLabel(sources.network?.dataLastEditDate)}. Lane counts are recorded values; “not recorded” does not mean no hard shoulder. Physical layouts are unverified.` }),
@@ -735,7 +949,7 @@ class NetworkMap {
     const age = ageDays(this.network?.fetchedAt);
     const label = !this.network ? 'Data unavailable'
       : !navigator.onLine ? 'Offline snapshot'
-        : this.refreshFailed ? 'Refresh failed · saved data'
+        : this.notRefreshed ? 'Earlier copy · not refreshed'
           : this.upstreamNewer ? 'Newer source available'
             : age > 2 ? `Snapshot ${Math.floor(age)}d old`
               : `Road data · ${dateLabel(this.network?.sources.network?.dataLastEditDate)}`;
@@ -753,9 +967,17 @@ class NetworkMap {
     try {
       const base = source.url.replace(/\/query.*$/, '').replace(/\/$/, '');
       const url = /FeatureServer\/\d+$/.test(base) ? base : `${base}/1`;
-      const res = await fetch(`${url}?f=json`, { signal: AbortSignal.timeout(12000) });
-      if (!res.ok) throw new Error('Source check failed');
-      const metadata = await res.json(); const edited = metadata.editingInfo?.dataLastEditDate;
+      // A plain timer: the oldest web views the Android app allows have no AbortSignal.timeout().
+      const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+      let metadata;
+      try {
+        const res = await fetch(`${url}?f=json`, { signal: ctl.signal });
+        if (!res.ok) throw new Error('Source check failed');
+        metadata = await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+      const edited = metadata.editingInfo?.dataLastEditDate;
       if (this.network !== snapshot) return;
       if (!Number.isFinite(edited)) throw new Error('Source date unavailable');
       this.upstreamNewer = edited > new Date(source.dataLastEditDate).getTime() + 1000;
@@ -778,22 +1000,29 @@ class NetworkMap {
     const link = (text, href) => h('a', { href, target: '_blank', rel: 'noopener', text });
     const refresh = h('button', { class: 'btn btn-secondary', type: 'button', text: 'Refresh map snapshot' });
     refresh.onclick = async () => { refresh.disabled = true; this.closeDetail(); await this.load(); this.renderSources(); };
+    // The street map is a dated copy as well. Its date is inside the file and
+    // is read the first time it is asked for; if that fails it stays unknown.
+    const streets = this.basemap;
+    const streetsRow = row('Street map data (OpenStreetMap)', streets.available ? 'Checking…' : this.streetsOpening ? 'Loading…' : 'Not loaded');
+    if (streets.available) streets.dataDate().then(dateLabel, () => 'Unknown').then((text) => { streetsRow.lastChild.textContent = text; });
     $('map-data-content').replaceChildren(
       h('p', { text: 'A recent download is not the same as a recently verified road layout. Dates below are kept separate.' }),
       h('div', { class: 'group' },
         row('Snapshot downloaded', dateLabel(n?.fetchedAt)),
         row('Network source data edited', dateLabel(sources.network?.dataLastEditDate)),
         row('Separate ERA source edited', dateLabel(sources.emergencyAreas?.dataLastEditDate)),
-        row('Marker posts / junctions verified', 'Unknown · existing app data')),
+        // Kept short: a row's value does not wrap, and on a phone a long one leaves its label no room.
+        row('Marker posts / junctions verified', 'Unknown'),
+        streetsRow),
       h('p', { class: 'callout', text: `${this.checkStatus || 'Source publication check is pending.'} ERA locations and availability remain unverified.` }),
       h('h3', { text: 'Coverage' }),
       h('p', { text: 'National Highways roads in a Hampshire-area bounding box, with a connecting buffer. Includes A36 and NH-owned junction links. This is not an exact county or patrol boundary. The street background includes roads beyond the highlighted National Highways network.' }),
       h('h3', { text: 'Emergency areas, shoulders and lay-bys' }),
-      h('p', { text: 'National Highways records are displayed as supplied. The separate ERA layer was published before the two new M27 J9–J10 bays opened in February 2025. It cannot be treated as a complete current inventory. Amber icons identify those older records. Running-lane counts exclude recorded shoulders; absence of a shoulder record does not confirm there is no shoulder.' }),
+      h('p', { text: 'National Highways records are displayed as supplied. The separate ERA layer was published before the two new M27 J9–J10 bays opened in February 2025. It cannot be treated as a complete current inventory. The brown EA badges are those older records. Running-lane counts exclude recorded shoulders; absence of a shoulder record does not confirm there is no shoulder.' }),
       h('h3', { text: 'Marker posts' }),
       h('p', { text: 'Your existing references are preserved. Missing slip-road posts and interchange letters are not guessed from nearby mainline posts. Nearby-post distances are straight-line distances, not a surveyed chainage for the selected feature.' }),
       h('h3', { text: 'Street map' }),
-      h('p', { text: 'The street background is drawn from OpenStreetMap data and is a separate source from the highlighted network. Full street detail is kept within about 3 km of National Highways roads; further away the map shows an overview only.' }),
+      h('p', { text: 'The street background is drawn from OpenStreetMap data and is a separate source from the highlighted network. It is a copy of OpenStreetMap as it stood on the date in the list above, not a live map. Full street detail is kept within about 3 km of National Highways roads; further away the map shows an overview only.' }),
       h('h3', { text: 'Sources' }),
       h('p', {},
         link('National Highways Network Model', 'https://www.arcgis.com/home/item.html?id=4b64217e40dc48ebb38315a9a95c96e5'), ' · ',
@@ -816,8 +1045,9 @@ class NetworkMap {
     const svg = $('map-compass').firstElementChild;
     if (svg) svg.style.transform = `rotate(${-map.getBearing()}deg)`;
   }
+  /** Who the map on screen comes from. OpenStreetMap is named whenever its street map is being drawn. */
   paintAttribution() {
-    const streets = this.layersOn.streets && this.basemap?.available;
+    const streets = this.layersOn.streets && this.basemap.available;
     const link = (text, href) => h('a', { href, target: '_blank', rel: 'noopener', text });
     $('map-attribution').replaceChildren(
       ...(streets ? [link(BASEMAP_ATTRIBUTION, 'https://www.openstreetmap.org/copyright'), ' · '] : []),
@@ -831,13 +1061,33 @@ class NetworkMap {
     const box = $('map-offline'), status = $('map-offline-status'), action = $('map-offline-action');
     show(box, true);
     if (this.offlineBusy) return;
+    // Only the newest call may write. An older one still waiting when the copy
+    // is saved or removed would otherwise put back what it found before.
+    const turn = (this.offlineTurn || 0) + 1;
+    this.offlineTurn = turn;
+    const overtaken = () => turn !== this.offlineTurn || this.offlineBusy;
+    // Before the first answer is in, the card says so and its button does nothing.
+    if (!status.textContent) { status.textContent = 'Checking…'; action.textContent = 'Save street map'; action.disabled = true; }
     const state = await offlineBasemap.status();
+    if (overtaken()) return;
     if (state.saved) {
-      status.textContent = `Saved on this phone${state.bytes ? ` (${megabytes(state.bytes)})` : ''}${state.savedAt ? `, ${dateLabel(state.savedAt)}` : ''}. The street map works with no signal.`;
       action.textContent = 'Remove saved street map';
       action.disabled = false;
+      // A saved copy that is not the one being drawn was saved after this map
+      // opened, or could not be read. One more attempt tells which.
+      if (this.streetsOpening) await this.streetsOpening;
+      else if (this.basemap.mode !== 'saved') await this.openStreets();
+      // Nothing refreshes a saved copy, so say how old the map in it is, not only when it was saved.
+      const inUse = this.basemap.available && this.basemap.mode === 'saved';
+      const mapDate = inUse ? await this.basemap.dataDate().catch(() => null) : null;
+      if (overtaken()) return;
+      status.textContent = inUse
+        ? `Saved on this phone${state.bytes ? ` (${megabytes(state.bytes)})` : ''}${state.savedAt ? `, ${dateLabel(state.savedAt)}` : ''}. ${mapDate
+          ? `Its OpenStreetMap data is dated ${dateLabel(mapDate)}.` : 'The date of its OpenStreetMap data is not known.'} The street map works with no signal.`
+        : 'The copy saved on this phone could not be read, so it is not being used. Remove it, then save it again.';
     } else {
       const size = await offlineBasemap.size();
+      if (overtaken()) return;
       status.textContent = size
         ? 'Not saved. The network and marker posts always work offline; the street background needs a connection unless you save it.'
         : 'The street map is not available to download right now.';
@@ -860,8 +1110,7 @@ class NetworkMap {
         P.haptic('success');
       }
       // Switch the map to the new source straight away.
-      this.basemap = await openBasemap(this.gl);
-      this.applyStyle();
+      await this.openStreets();
     } catch (err) {
       this.toast('The street map could not be saved. Check your connection and try again.');
       console.error('Street map:', err);

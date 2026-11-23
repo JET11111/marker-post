@@ -2,7 +2,7 @@
 
 ## Vector map: 22 November 2026
 
-The map was rebuilt on a different engine. What it shows and what it says about the data are unchanged; how it is drawn, and where the street background comes from, are new.
+The map was rebuilt on a different engine. What it shows is unchanged, and no caveat about the data has been dropped; how it is drawn, and where the street background comes from, are new. The last four items in the list below are things the map now says, or says more plainly than it did.
 
 ### What changed
 
@@ -11,15 +11,20 @@ The map was rebuilt on a different engine. What it shows and what it says about 
 - **The network, marker dots, emergency areas, lay-bys and junctions** are drawn by the map engine itself from the same data files as before, in the same colours as the rest of the app.
 - **Look**: muted greys and greens with thin roads, so the network is what stands out. Motorways are blue and A roads green, as on road signs. Road numbers on the network are small sign-coloured shields drawn above the marker dots.
 - **Light and dark** follow the app's appearance setting. Nothing flashes white when the map opens at night.
+- **Your position**: the dot is blue, with its accuracy circle, only while the position is current. The rule is the first page's: 15 seconds without a new position when moving, 30 when the speed is not known, 2 minutes standing still, and 15 seconds for a position from before the app was put away. After that the dot turns grey, loses the circle and is labelled "Last known" with the time. A position made up for desk testing is labelled "Simulated position". "My location" quotes an accuracy only when the phone supplied one.
+- **Emergency area cards**: the records for emergency areas name no road or carriageway, so the card takes both from the nearest road. Its heading now ends "unverified match" and its own row says "carriageway unverified". Lay-bys are tied to their road by the records themselves and are not labelled this way.
+- **The street map has a date**: it is a copy of OpenStreetMap, not a live map. "Data dates and coverage" gives the date of the copy on screen, and the "Street map without signal" card gives it for a copy saved on the phone.
+- **Road data on a slow connection**: the map waits a few seconds for today's road data, then draws the copy kept from last time if there is one. The pill at the top left then reads "Earlier copy · not refreshed".
 
 ### What did not change
 
-- Tapping a marker dot or a road opens the same card with the same wording. Every caveat is still there: straight-line distances are labelled, unknown stays unknown, older emergency-area records and uncertain carriageway associations stay labelled. `map-details.js` is the old `map-details.mjs`, renamed only.
-- Search, the layer switches, the whole-patch view, the data dates sheet and the refresh behaviour.
+- Tapping a marker dot or a road opens the same card. Every caveat is still there: straight-line distances are labelled, unknown stays unknown, older emergency-area records and uncertain carriageway associations stay labelled. `map-details.js` is the old `map-details.mjs` with two additions: the emergency-area label above, and the wording for your position.
+- Search, the layer switches and the whole-patch view.
 - Marker posts are never interpolated and labels never appear by themselves.
-- "© OpenStreetMap · National Highways (OGL)" is always on the map.
+- Marker dots, emergency areas and lay-bys appear at the same scale as before. The new engine numbers its zoom levels one lower, so the old 12 is now 11.
+- The credit "© OpenStreetMap · National Highways (OGL)" stays readable on the map: above an open card on a phone held upright, beside the card in landscape and on wide screens. The OpenStreetMap half is shown whenever the street map is drawn, and left out when that layer is switched off or the street map could not be loaded.
 
-Two small behaviour changes: marker dots, emergency areas and lay-bys now appear from zoom 11 (was 12), and a tap chooses a marker or bay only if it is within 12 pixels, otherwise the nearest road. That makes the road between two markers easy to tap.
+One small behaviour change: a tap chooses a marker or bay only if it is within 12 pixels, otherwise the nearest road. That makes the road between two markers easy to tap.
 
 ### The street map file
 
@@ -35,7 +40,9 @@ The file is never committed. GitHub cuts it once a month, keeps it in the Action
 - **on the website**, where the web app reads only the parts on screen. "Save street map" in the layers sheet stores the whole file on the phone for use without signal. It is never downloaded without being asked for.
 - **inside the Android and iPhone apps**, so their map works with no signal from the first launch.
 
-If the file cannot be read, the map still works: it shows the network and marker posts on a plain background and says so.
+If the file cannot be read, the map still works: it shows the network and marker posts on a plain background and says so. The network and the marker posts are drawn without waiting for the street map. A file that would not open is tried again every half minute while the app is in view, each time the Map tab is opened, and when the phone reports that the connection is back.
+
+The website is published again many times a day, whenever the sign data changes. Each time, GitHub gives the file a new version label (its ETag), although the file itself changes only once a month, so the web app cannot tell the two cases apart. A web app that is open at the time notices at the next piece of map it asks for, and reads the file's index again (about 16 kB) before it goes on. If that read fails for want of signal, it keeps the index it had and tries again with the next piece of map. A piece that arrives under a different label from the index in use is never drawn, so a new file is never cut up with the old file's index.
 
 ### Why this source
 
@@ -54,8 +61,8 @@ Cloudflare R2 remains the next step if the file ever outgrows GitHub Pages (1 GB
 
 ### Code and licences
 
-- `map.js` (the map and its interface), `map-style.js` (colours and base layers), `basemap.js` (finding and reading the street map file), `map-details.js` (what a selected road or marker says).
-- Vendored, with licences and checksums in `vendor/`: MapLibre GL JS 6.19.0, PMTiles 4.5.0, Protomaps basemaps 5.7.2 and its Noto Sans fonts and icons. `npm run vendor` refreshes them.
+- `map.js` (the map and its interface), `map-style.js` (colours and base layers), `basemap.js` (finding and reading the street map file), `map-details.js` (what a selected road or marker says, and what the map may say about your position).
+- Vendored, with licences and checksums in `vendor/`: MapLibre GL JS 6.19.0, PMTiles 4.5.0, Protomaps basemaps 5.7.2 and its Noto Sans fonts and icons. `npm run vendor` refreshes them. The three libraries come from the versions pinned in `package.json`. The fonts, the icons and four licence texts are downloaded as their publishers have them on the day, so read the diff after a refresh.
 - The map engine needs WebGL2: iOS 16.4 or later, and any current Android or desktop browser.
 
 ## Earlier record: mobile map update, 24 September 2026

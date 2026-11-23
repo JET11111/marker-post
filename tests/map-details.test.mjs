@@ -163,3 +163,30 @@ test('committed snapshot provides a parent layout and matching lay-by on A31', a
   assert.ok(result.layout.runningCount >= 2);
   assert.equal(result.nearestLayby.distanceM, 0);
 });
+
+test('a section description is shown with the carriageway letter, never a compass word, where the record has a letter', async () => {
+  const { sectionText } = await import('../map-details.js');
+  assert.equal(sectionText({ description: 'M27 eastbound between J4 and J5', carriageway: 'A' }), 'M27 carriageway A between J4 and J5');
+  assert.equal(sectionText({ description: 'M3 Eastbound within J14', carriageway: 'b' }), 'M3 carriageway B within J14');
+  // No letter in the record: National Highways' words are left exactly as supplied.
+  assert.equal(sectionText({ description: 'M27 J5 westbound exit', carriageway: 'L' }), 'M27 J5 westbound exit');
+  assert.equal(sectionText({ description: 'M27 J5 westbound exit' }), 'M27 J5 westbound exit');
+  assert.equal(sectionText({ description: '  A34 northbound between A303 and B4640 ', carriageway: 'A' }), 'A34 carriageway A between A303 and B4640');
+  assert.equal(sectionText(null), '');
+  assert.equal(sectionText({}), '');
+
+  // Every record in the published network: with an A or B there is never a compass word left.
+  const { readFile } = await import('node:fs/promises');
+  const network = JSON.parse(await readFile(new URL('../data/network.json', import.meta.url), 'utf8'));
+  let lettered = 0;
+  for (const link of network.links) {
+    const shown = sectionText(link);
+    if (/^[AB]$/i.test(String(link.carriageway ?? '').trim())) {
+      lettered++;
+      assert.doesNotMatch(shown, /\b(north|south|east|west)bound\b/i, link.description);
+    } else {
+      assert.equal(shown, String(link.description ?? '').trim());
+    }
+  }
+  assert.ok(lettered > 1000, `${lettered} records have a carriageway letter`);
+});

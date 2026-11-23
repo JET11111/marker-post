@@ -56,7 +56,9 @@
 .map-results {
   position: absolute; z-index: 7;
   top: calc(var(--safe-top) + 64px); left: calc(var(--safe-left) + 12px); right: calc(var(--safe-right) + 12px);
-  max-width: 518px; max-height: min(58dvh, 440px); overflow-y: auto; overscroll-behavior: contain;
+  /* vh first: web views before Chrome 108 do not know dvh and would drop the limit altogether. */
+  max-width: 518px; max-height: min(58vh, 440px); max-height: min(58dvh, 440px);
+  overflow-y: auto; overscroll-behavior: contain;
   border-radius: 16px; background: var(--surface); box-shadow: var(--shadow-float);
 }
 .map-result { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 14px; text-align: left; color: var(--text); }
@@ -66,7 +68,12 @@
 .map-result small { display: block; margin-top: 2px; font-size: 13px; line-height: 18px; color: var(--text-2); }
 .map-result-badge { flex: none; min-width: 54px; padding: 4px 6px; border-radius: 6px; background: var(--fill); color: var(--text-2); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-align: center; }
 
-/* ---------- attribution, hint, toast ---------- */
+/* ---------- attribution, hint, toast ----------
+   The attribution has to stay readable in every state. From the bottom up:
+   attribution, hint, toast, each in its own band. When the card is open the
+   map adds "sheet-open" and keeps --map-sheet-height at the card's height
+   (map.js), so the attribution and the toast sit just above the card however
+   tall it becomes. */
 .map-attribution {
   position: absolute; z-index: 3; left: calc(var(--safe-left) + 12px); bottom: 10px;
   padding: 0 8px; border-radius: 8px;
@@ -74,25 +81,28 @@
   transition: bottom 0.2s var(--ease);
 }
 .map-attribution a { color: inherit; text-decoration: none; }
-.map-app.has-selection .map-attribution { bottom: calc(var(--map-sheet-height, 0px) + 16px); }
+.map-app.sheet-open .map-attribution { bottom: calc(var(--map-sheet-height, 0px) + 16px); }
 .map-hint {
   position: absolute; z-index: 3; left: 50%; bottom: 44px; transform: translateX(-50%);
   padding: 8px 14px; border-radius: 18px; background: var(--scrim); color: var(--text-2);
   font-size: 13px; font-weight: 500; white-space: nowrap; pointer-events: none;
 }
+/* With a card open the hint has nothing to add, and must not lie over the attribution beside the card. */
+.map-app.sheet-open .map-hint { display: none; }
 .map-toast {
   position: absolute; z-index: 9; left: 50%; bottom: 84px; transform: translateX(-50%);
   width: max-content; max-width: calc(100% - 32px); padding: 12px 16px; border-radius: var(--r-row);
   background: var(--text); color: var(--bg); font-size: 15px; line-height: 20px; font-weight: 500; text-align: center;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
 }
-.map-app.has-selection .map-toast { bottom: calc(var(--map-sheet-height, 0px) + 52px); }
+.map-app.sheet-open .map-toast { bottom: calc(var(--map-sheet-height, 0px) + 52px); }
 
 /* ---------- detail card ---------- */
 .map-sheet {
   position: absolute; z-index: 8; left: 8px; right: 8px; bottom: 8px;
   display: flex; flex-direction: column;
-  max-height: min(58dvh, 480px); overflow-y: auto; overscroll-behavior: contain;
+  max-height: min(58vh, 480px); max-height: min(58dvh, 480px); /* vh first, as for the results list */
+  overflow-y: auto; overscroll-behavior: contain;
   border-radius: var(--r-sheet); background: var(--surface); box-shadow: var(--shadow-sheet);
   animation: sheet-in 0.24s var(--ease);
 }
@@ -150,9 +160,24 @@ button.map-row:active { background: var(--fill); }
 /* ---------- wide screens and landscape phones: the card sits at the side ---------- */
 @media (min-width: 701px), (orientation: landscape) and (max-height: 540px) {
   .map-sheet { left: calc(var(--safe-left) + 12px); right: auto; bottom: 12px; width: 360px; max-height: calc(100% - 140px); }
-  .map-app.has-selection .map-attribution { bottom: 10px; left: calc(var(--safe-left) + 384px); }
-  .map-app.has-selection .map-toast { bottom: 52px; }
-  .map-hint { bottom: 16px; }
+  /* Beside the card the attribution takes the room that is left, and wraps
+     onto more lines rather than run off the edge of a narrow screen. The
+     toast stays in its usual band, above them. */
+  .map-app.sheet-open .map-attribution {
+    bottom: 10px; left: calc(var(--safe-left) + 384px);
+    max-width: calc(100% - var(--safe-left) - var(--safe-right) - 396px); white-space: normal;
+  }
+  .map-app.sheet-open .map-toast { bottom: 84px; }
+}
+/* Where the scale bars are drawn (bottom right, 122px wide with their margin)
+   it stops short of them as well. */
+@media (min-width: 701px) {
+  .map-app.sheet-open .map-attribution { max-width: calc(100% - var(--safe-left) - 518px); }
+}
+/* Landscape phones: the tab rail down the left already keeps clear of the
+   camera cut-out, so the map's own controls must not allow for it again. */
+@media (orientation: landscape) and (max-height: 540px) {
+  .map-stage { --safe-left: 0px; }
 }
 @media (max-width: 700px) {
   .map-desktop { display: none; }

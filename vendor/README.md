@@ -1,8 +1,16 @@
 # Third-party files
 
-Everything here is produced by `node scripts/vendor.mjs` from the versions
-pinned in `package.json`. Do not edit these files by hand: change the pinned
-version, run the script and commit the result.
+Everything here is put in place by `node scripts/vendor.mjs`. Do not edit
+these files by hand: run the script and commit the result.
+
+- The MapLibre GL JS, PMTiles and Protomaps basemaps code, and MapLibre's
+  licence text, are copied from the versions pinned in `package.json`. To
+  move to a newer one, change the pinned version first.
+- The map fonts, the icon sheets and four licence texts are downloaded from
+  the addresses in the table below, as they stood on the day the script last
+  ran. They are not pinned to a version: a later run takes whatever is
+  published then and rewrites the checksums to match. Read the diff before
+  committing it.
 
 | Library | Version | Licence | Used for |
 | --- | --- | --- | --- |
