@@ -433,6 +433,7 @@ final class LookupRuleTests: XCTestCase {
         XCTAssertEqual(StaleRule.limit(lastSpeed: nil), 30)
         XCTAssertEqual(StaleRule.limit(lastSpeed: 0), 120)
         XCTAssertEqual(StaleRule.limit(lastSpeed: 2.5), 120, "at the threshold counts as stationary")
+        XCTAssertEqual(StaleRule.limit(lastSpeed: Double.nan), 30, "not a number is an unknown speed, as in the web app")
 
         XCTAssertFalse(StaleRule.isStale(fixAge: 15, lastSpeed: 30))
         XCTAssertTrue(StaleRule.isStale(fixAge: 15.1, lastSpeed: 30))

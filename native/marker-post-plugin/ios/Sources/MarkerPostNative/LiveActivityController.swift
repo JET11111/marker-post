@@ -45,12 +45,20 @@ final class LiveActivityController {
     /// While moving, the system itself marks the activity out of date this
     /// long after the last update, in case the app can no longer speak.
     private static let staleAfter: TimeInterval = 90
+    /// The same, while iOS has paused its updates because the vehicle is
+    /// standing still. Much longer, because silence is then expected; but
+    /// never left out, because a closed app cannot say that the vehicle has
+    /// driven off. The tracker sends the display again well inside this time
+    /// for as long as it is running.
+    private static let pausedStaleAfter: TimeInterval = 30 * 60
     /// How long the warning words stay on the activity before the ordinary
     /// display returns. They take the place of the line beside the post (the
     /// junction section), so they are not left up for the whole half hour.
     private static let noticeSeconds: UInt64 = 60
     /// Remembers which activity has been warned about, so the warning is given once.
     private static let warnedKey = "markerpost.activity.warned"
+    /// Remembers when the display is due to end (see `rememberDisplayEnd`).
+    private static let displayEndsKey = "markerpost.activity.expectedUntil"
 
     /// A fixed 24-hour "14:05", whatever the phone's region or 12/24-hour setting.
     private static let clock: DateFormatter = {
@@ -84,10 +92,39 @@ final class LiveActivityController {
         return ActivityAuthorizationInfo().areActivitiesEnabled
     }
 
+    /// True when this app's Live Activity is on screen now, as far as iOS has
+    /// said. The shortcut asks after a renewal that iOS refused: if the old
+    /// display is still there, nothing was lost and the driver need do nothing.
+    func isDisplayShowing(now: Date) -> Bool {
+        // With Live Activities switched off for the app, none can be on screen.
+        guard isEnabled else { return false }
+        // The follow-on counts as well as the activity it follows: it may
+        // have started since the regular check last ran (see `reconcile`).
+        for held in [current, successor] {
+            guard let activity = held, isShowing(activity) else { continue }
+            // iOS ends a Live Activity at eight hours, whatever is known here
+            // of its state. Anything left on the Lock Screen after that is a
+            // frozen copy that nothing can update: not a display that is on.
+            if now.timeIntervalSince(activity.attributes.startedAt) < LiveActivityController.systemLimit {
+                return true
+            }
+        }
+        return false
+    }
+
     /// The activity on screen, if any.
-    private var current: PostActivity?
+    private var current: PostActivity? {
+        didSet { syncWatchers() }
+    }
     /// The follow-on that iOS will start by itself before `current` reaches eight hours (iOS 26 and later).
-    private var successor: PostActivity?
+    private var successor: PostActivity? {
+        didSet { syncWatchers() }
+    }
+
+    /// What the system has said became of each of the two activities held
+    /// above, and the tasks that listen for it (see `watch`).
+    private var reportedState: [String: ActivityState] = [:]
+    private var watchers: [String: Task<Void, Never>] = [:]
 
     private var screen = Screen.waiting
     /// The newest display not yet sent to `current`, and whether a send is under way.
@@ -117,25 +154,41 @@ final class LiveActivityController {
         notice = nil
         highestGeneration = 0
         UserDefaults.standard.removeObject(forKey: LiveActivityController.warnedKey)
+        UserDefaults.standard.removeObject(forKey: LiveActivityController.displayEndsKey)
 
         // Nothing from an earlier session may linger beside the new activity.
         await end(PostActivity.activities)
         guard mine == epoch else { return .failed }
 
-        if await requestChain(now: now, epoch: mine) { return .started }
+        if await requestChain(now: now, epoch: mine, replaceNearlyOver: false) { return .started }
         return isEnabled ? .failed : .disabled
     }
 
     /// Replace the activity on screen with a fresh one, which resets the eight
     /// hours. Works in the foreground, and inside an App Intent the system runs.
-    func renewChain(now: Date) async -> Bool {
+    ///
+    /// - Parameter replaceNearlyOver: true when the shortcut is asking. If iOS
+    ///   then refuses, a display that has all but run out is ended and the
+    ///   request made once more (see `requestChain`).
+    func renewChain(now: Date, replaceNearlyOver: Bool) async -> Bool {
         guard isEnabled else { return false }
         epoch += 1
-        return await requestChain(now: now, epoch: epoch)
+        return await requestChain(now: now, epoch: epoch, replaceNearlyOver: replaceNearlyOver)
     }
 
     /// After the app was restarted: find the activities that are still there.
-    func adoptExisting() {
+    ///
+    /// - Returns: false when nothing is on screen although the display was
+    ///   not due to end yet. It was then taken off the screen while the app
+    ///   was not running, and that is the user saying stop, exactly as it is
+    ///   while the app is running (see `reconcile`). The caller must not
+    ///   carry the session on.
+    ///
+    /// One case cannot be told from an untouched display (iOS 26 and later):
+    /// the display was swiped away while the app was not running, and the app
+    /// was not started again before the scheduled follow-on began by itself.
+    /// Something is on screen then, so the answer is true.
+    func adoptExisting(now: Date) -> Bool {
         let all = PostActivity.activities
         let byGeneration: (PostActivity, PostActivity) -> Bool = { $0.attributes.generation < $1.attributes.generation }
         let showing = all.filter { isShowing($0) }.sorted(by: byGeneration)
@@ -146,11 +199,21 @@ final class LiveActivityController {
 
         // The newest of each kind is kept. Anything older, and any ended copy
         // still frozen on the Lock Screen, is cleared away.
-        let frozen = all.filter { $0.activityState == .ended }
+        let frozen = all.filter { latestState(of: $0) == .ended }
         let unwanted = Array(showing.dropLast()) + Array(scheduled.dropLast()) + frozen
         if !unwanted.isEmpty {
             Task { await self.end(unwanted) }
         }
+
+        // Something is on screen, or nothing was written down about when the
+        // display should end (a session begun by an earlier version of the
+        // app): carry on.
+        guard current == nil,
+              let seconds = UserDefaults.standard.object(forKey: LiveActivityController.displayEndsKey) as? Double
+        else { return true }
+        return !DisplayRule.removedByUser(now: now,
+                                          dueToEnd: Date(timeIntervalSince1970: seconds),
+                                          followOnStarts: successor?.attributes.startedAt)
     }
 
     /// Tracking has stopped: show the last post one final time and remove
@@ -169,6 +232,7 @@ final class LiveActivityController {
         unsent = nil
         unsentForSuccessor = nil
         notice = nil
+        UserDefaults.standard.removeObject(forKey: LiveActivityController.displayEndsKey)
 
         let state = ContentState(snapshot: finalSnapshot, problem: nil)
         Task {
@@ -184,7 +248,7 @@ final class LiveActivityController {
 
     /// Ask for a fresh activity, end the ones it replaces, and where the
     /// system allows (iOS 26 and later) schedule the one that follows it.
-    private func requestChain(now: Date, epoch mine: Int) async -> Bool {
+    private func requestChain(now: Date, epoch mine: Int, replaceNearlyOver: Bool) async -> Bool {
         // Everything the new chain replaces, including a follow-on that is
         // only held here (see `withHeld`).
         let before = withHeld(PostActivity.activities)
@@ -198,17 +262,27 @@ final class LiveActivityController {
             fresh = try request(generation: generation, startedAt: now)
         } catch {
             // The request is tried first, so that a refusal leaves the old
-            // display alone. Nothing is ended for a second try unless the
-            // refusal is one that ending is sure to cure: there are already
-            // as many Live Activities as iOS allows.
+            // display alone. The old activities are only ended for a second
+            // try in two cases.
+            //
+            // 1. The refusal is one that ending them is sure to cure: there
+            //    are already as many Live Activities as iOS allows.
+            //
+            // 2. The shortcut is asking, and there is next to nothing to
+            //    lose (see `displayIsNearlyOver`). Siri is reported to refuse
+            //    a new activity while another from the same app is showing.
+            //    If that is why, ending the old one first is the only way the
+            //    spoken shortcut can renew the display in the half hour in
+            //    which the driver is told to act. If it is not, less than
+            //    half an hour of display is lost.
             //
             // Every other refusal keeps what is on screen. The usual one is
             // that the app is not on screen, and that would only be given
-            // again. Siri is reported to give the same answer while another
-            // activity from the app is showing; ending the display on the
-            // chance that this is why would leave nothing on screen if it
-            // was not, and nothing to carry the 7 h 30 min warning.
-            guard LiveActivityController.endingOthersCures(error), !before.isEmpty else { return false }
+            // again; ending the display for it would leave nothing on screen,
+            // and nothing to carry the 7 h 30 min warning.
+            let worthEnding = LiveActivityController.endingOthersCures(error)
+                || (replaceNearlyOver && displayIsNearlyOver(now: now))
+            guard worthEnding, !before.isEmpty else { return false }
             // Forgotten before they are ended, so that the regular check does
             // not mistake this for the user swiping the activity away.
             current = nil
@@ -216,6 +290,12 @@ final class LiveActivityController {
             await end(before)
             guard mine == epoch else { return false }
             fresh = try? request(generation: generation, startedAt: now)
+            if fresh == nil {
+                // Nothing is on screen now, and that is this app's doing, not
+                // the user's. A restart of the app must not read it as "stop"
+                // (see `adoptExisting`).
+                UserDefaults.standard.removeObject(forKey: LiveActivityController.displayEndsKey)
+            }
         }
         guard let started = fresh else { return false }
 
@@ -242,6 +322,7 @@ final class LiveActivityController {
             successor = next
             highestGeneration = generation + 1
         }
+        rememberDisplayEnd()
         return true
     }
 
@@ -300,6 +381,27 @@ final class LiveActivityController {
         }
     }
 
+    /// True when there is next to nothing to lose by ending the display: no
+    /// follow-on is waiting to take over, and either nothing is showing or
+    /// what is showing has had its 7 h 30 min warning.
+    private func displayIsNearlyOver(now: Date) -> Bool {
+        guard successor == nil else { return false }
+        guard let activity = current, isShowing(activity) else { return true }
+        return now.timeIntervalSince(activity.attributes.startedAt) >= LiveActivityController.warnAfter
+    }
+
+    /// Write down when the display is due to end: eight hours after the
+    /// newest activity of the chain starts.
+    ///
+    /// It is read when the app is started again (`adoptExisting`). If nothing
+    /// is on screen then, although the display was not due to end yet, the
+    /// user took it off the screen while the app was not running.
+    private func rememberDisplayEnd() {
+        guard let last = successor ?? current else { return }
+        let ends = last.attributes.startedAt.addingTimeInterval(LiveActivityController.systemLimit)
+        UserDefaults.standard.set(ends.timeIntervalSince1970, forKey: LiveActivityController.displayEndsKey)
+    }
+
     private func end(_ activities: [PostActivity]) async {
         for activity in showingFirst(activities) {
             await activity.end(nil, dismissalPolicy: .immediate)
@@ -344,7 +446,8 @@ final class LiveActivityController {
     ///
     /// `stationary` is the tracker's judgement, not iOS's word alone: true only
     /// when iOS has paused its updates and that accounts for this post not
-    /// being refreshed. It switches off the stale date (see `content`).
+    /// being refreshed. It gives the display longer before the system marks
+    /// it out of date by itself (see `content`).
     func show(snapshot: PostSnapshot?, problem: String?, stationary: Bool) {
         screen = Screen(snapshot: snapshot, problem: problem, stationary: stationary)
         send(screen)
@@ -400,15 +503,22 @@ final class LiveActivityController {
         let state = ContentState(snapshot: screen.snapshot, problem: problem)
 
         // The stale date is the system's own backstop. If the app is closed or
-        // loses GPS while the vehicle is moving, iOS marks the activity out of
-        // date by itself once this time passes. A post that is current goes
-        // without a date in one case only: the tracker says that iOS's pause
+        // loses GPS, iOS marks the activity out of date by itself once this
+        // time passes, so a post nothing is updating cannot go on looking
+        // current. Every post shown as current carries one.
+        //
+        // It is 90 seconds, except when the tracker says that iOS's pause
         // accounts for the silence (the vehicle is standing where this post
-        // was found). Silence is then expected, and the display would
-        // otherwise go out of date while parked.
+        // was found). Silence is then expected, so the time is half an hour,
+        // and the tracker sends the display again every ten minutes while it
+        // is running. A parked vehicle therefore keeps its post for as long
+        // as the app is alive; if the app has been closed, the post is shown
+        // as last known within half an hour instead of looking current for
+        // the rest of the eight hours.
         var staleDate: Date?
-        if let snapshot = screen.snapshot, !snapshot.stale, screen.problem == nil, !screen.stationary {
-            staleDate = now.addingTimeInterval(LiveActivityController.staleAfter)
+        if let snapshot = screen.snapshot, !snapshot.stale, screen.problem == nil {
+            let allowed = screen.stationary ? LiveActivityController.pausedStaleAfter : LiveActivityController.staleAfter
+            staleDate = now.addingTimeInterval(allowed)
         }
         return ActivityContent(state: state, staleDate: staleDate, relevanceScore: Double(generation))
     }
@@ -443,16 +553,16 @@ final class LiveActivityController {
 
         // 2. What became of the activity on screen?
         if let activity = current {
-            let state = activity.activityState
-            let age = now.timeIntervalSince(activity.attributes.startedAt)
+            let state = latestState(of: activity)
             if state == .dismissed {
                 current = nil
                 // Removed well before the eight-hour limit: the user swiped it
                 // away. After the limit it is the system tidying up. And if the
                 // follow-on is due to start, the system may be making room for
                 // it, which must not be mistaken for the user saying stop.
-                let handoverDue = successor.map { now >= $0.attributes.startedAt.addingTimeInterval(-60) } ?? false
-                if age < LiveActivityController.systemLimit - 300 && !handoverDue {
+                let dueToEnd = activity.attributes.startedAt.addingTimeInterval(LiveActivityController.systemLimit)
+                if DisplayRule.removedByUser(now: now, dueToEnd: dueToEnd,
+                                             followOnStarts: successor?.attributes.startedAt) {
                     return .dismissedByUser
                 }
             } else if state == .ended {
@@ -511,15 +621,63 @@ final class LiveActivityController {
 
     // MARK: - States
 
+    /// Listen for what the system says becomes of an activity held here.
+    ///
+    /// The regular check also reads the state from the activity itself, but
+    /// Apple does not say that an activity handed out hours ago keeps that up
+    /// to date. This stream is the documented way to be told, and stopping
+    /// when the user swipes the display away depends on being told. So both
+    /// are used (see `latestState`).
+    private func watch(_ activity: PostActivity) {
+        let id = activity.id
+        watchers[id] = Task { [weak self] in
+            for await state in activity.activityStateUpdates {
+                guard let self = self, !Task.isCancelled else { return }
+                self.reportedState[id] = state
+            }
+        }
+    }
+
+    /// Listen to the two activities held here, and to no others.
+    private func syncWatchers() {
+        var held: [PostActivity] = []
+        if let activity = current { held.append(activity) }
+        if let activity = successor { held.append(activity) }
+
+        let gone = watchers.keys.filter { id in !held.contains(where: { $0.id == id }) }
+        for id in gone {
+            watchers[id]?.cancel()
+            watchers[id] = nil
+            reportedState[id] = nil
+        }
+        for activity in held where watchers[activity.id] == nil {
+            watch(activity)
+        }
+    }
+
+    /// The state of an activity: what the activity itself says, and for one
+    /// held here also the last thing the system reported about it. Whichever
+    /// is further along counts. An activity that either of them says has
+    /// gone, has gone; and a follow-on that either of them says is on screen
+    /// has started, even if the other still has it as waiting.
+    private func latestState(of activity: PostActivity) -> ActivityState {
+        let own = activity.activityState
+        guard let reported = reportedState[activity.id] else { return own }
+        if own == .dismissed || reported == .dismissed { return .dismissed }
+        if own == .ended || reported == .ended { return .ended }
+        if own == .active || own == .stale { return own }
+        return reported
+    }
+
     /// On screen now. ("stale" is still on screen: only its content is out of date.)
     private func isShowing(_ activity: PostActivity) -> Bool {
-        let state = activity.activityState
+        let state = latestState(of: activity)
         return state == .active || state == .stale
     }
 
     /// Finished, whether still visible or not.
     private func isOver(_ activity: PostActivity) -> Bool {
-        let state = activity.activityState
+        let state = latestState(of: activity)
         return state == .ended || state == .dismissed
     }
 }
@@ -531,10 +689,11 @@ final class LiveActivityController {
 final class LiveActivityController {
     let isSupported = false
     var isEnabled: Bool { return false }
+    func isDisplayShowing(now: Date) -> Bool { return false }
 
     func startChain(now: Date) async -> LiveActivityStart { return .failed }
-    func renewChain(now: Date) async -> Bool { return false }
-    func adoptExisting() {}
+    func renewChain(now: Date, replaceNearlyOver: Bool) async -> Bool { return false }
+    func adoptExisting(now: Date) -> Bool { return true }
     func endAll(finalSnapshot: PostSnapshot?) {}
     func show(snapshot: PostSnapshot?, problem: String?, stationary: Bool) {}
     func needsRenewal(now: Date) -> Bool { return false }

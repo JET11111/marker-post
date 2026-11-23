@@ -28,7 +28,7 @@ public struct Post: Hashable, Sendable {
     public let letter: String
     /// The recorded reference, verbatim: "P17/4A".
     public let ref: String
-    /// The line under the post: "J4 – J5", "At J5", "A303 jct · 349 m", or empty.
+    /// The line under the post: "J4 – J5", "Within J5", "A303 jct · 349 m from post", "Link M27B/M3B · survey date unknown", or empty.
     public let context: String
 
     public init(lat: Double, lng: Double, bearing: Double?, roadClass: String, road: String,
@@ -215,6 +215,32 @@ public struct PostStore: Sendable {
         guard best >= 0 else { return nil }
         return NearestPost(index: best, distance: bestD, headingUsed: headingUsed)
     }
+
+    /// Steps 2 to 4 of "on every fix" (docs/native-apps.md, section 4): find
+    /// the post, decide whether the carriageway is confirmed, and build what
+    /// the surfaces show. Nil if there are no posts.
+    ///
+    /// A post more than `FarPost.farPostM` from the fix is still reported, but
+    /// only as the nearest one on record: its carriageway is never shown as
+    /// confirmed, whatever the heading says, and the line under it gives the
+    /// distance instead of the junction section. Such a fix leaves the last
+    /// confirmation as it was. It neither makes one nor forgets one.
+    ///
+    /// - Parameter confirmation: the tracker's memory of the last
+    ///   heading-confirmed carriageway. Updated when the heading confirms one.
+    public func liveSnapshot(lat: Double, lng: Double, heading: Double?, speed: Double?, useHeading: Bool,
+                             fixTime: Date, confirmation: inout CarriagewayConfirmation) -> PostSnapshot? {
+        guard let nearest = findNearest(lat: lat, lng: lng, heading: heading,
+                                        speed: speed, useHeading: useHeading) else { return nil }
+        let post = posts[nearest.index]
+        if FarPost.isFar(nearest.distance) {
+            var snapshot = post.snapshot(confirmed: false, fixTime: fixTime, stale: false, tracking: true)
+            snapshot.context = FarPost.context(distance: nearest.distance)
+            return snapshot
+        }
+        let confirmed = confirmation.confirmed(post: post, headingUsed: nearest.headingUsed, lat: lat, lng: lng)
+        return post.snapshot(confirmed: confirmed, fixTime: fixTime, stale: false, tracking: true)
+    }
 }
 
 /// Decides whether the carriageway letter may be shown as confirmed.
@@ -259,6 +285,7 @@ public struct CarriagewayConfirmation: Sendable {
 }
 
 /// How old a fix may be before the post it gave must be shown as "last known".
+/// The same rule as staleAfterMs in the web app's core/posts.js.
 public enum StaleRule {
     /// While moving faster than `Geo.headingMinSpeed` the post changes every few seconds.
     public static let movingLimit: TimeInterval = 15
@@ -270,7 +297,8 @@ public enum StaleRule {
     /// The longest a fix may go without a successor, given the last known speed
     /// in metres per second (nil when unknown).
     public static func limit(lastSpeed: Double?) -> TimeInterval {
-        guard let speed = lastSpeed else { return unknownSpeedLimit }
+        // A speed that is not a number is no speed at all, as in the web app.
+        guard let speed = lastSpeed, !speed.isNaN else { return unknownSpeedLimit }
         return speed > Geo.headingMinSpeed ? movingLimit : stationaryLimit
     }
 
@@ -300,5 +328,291 @@ public enum StaleRule {
         guard let began = pauseBegan else { return false }
         if let speed = lastSpeed, speed > Geo.headingMinSpeed { return false }
         return began.timeIntervalSince(fixTime) <= movingLimit
+    }
+}
+
+/// Which fixes the tracker may use, and the time each one carries.
+public enum FixRule {
+    /// A fix whose reported accuracy is worse than this many metres is not
+    /// used. The posts are 100 m apart, so a rougher position cannot tell one
+    /// post from the next.
+    public static let maxUsableAccuracyM: Double = 100
+
+    /// False when a fix is too rough to be a position. Such a fix is ignored:
+    /// it does not move the post, and it does not refresh the "updated" time
+    /// or put off the moment the last good fix goes stale.
+    ///
+    /// - Parameter accuracy: the reported accuracy in metres, or nil when the
+    ///   fix came with no figure. A fix with no figure is accepted, and so is
+    ///   one whose figure is not a number. (Core Location's negative figure
+    ///   means something else, that the position itself is not valid, and the
+    ///   tracker turns those away before asking here.)
+    public static func accuracyIsUsable(_ accuracy: Double?) -> Bool {
+        guard let accuracy = accuracy, !accuracy.isNaN else { return true }
+        return accuracy <= maxUsableAccuracyM
+    }
+
+    /// The time a fix is shown with and goes stale by: the time the position
+    /// was true, which is the time the system stamped it with and not the
+    /// time it arrived. Never later than now: a fix stamped in the future
+    /// would look newer than it is, and would stay "current" for too long.
+    public static func fixTime(reported: Date, now: Date) -> Date {
+        return reported > now ? now : reported
+    }
+}
+
+/// Distances, written exactly as the web app writes them (fmtDist in
+/// core/posts.js), so a distance reads the same on the Lock Screen as in the app.
+public enum DistanceText {
+    /// "38 m" below 1000 m, "1.24 km" below 10 km, "12.4 km" from there on.
+    ///
+    /// Digit for digit what the JavaScript gives, including the two edges
+    /// that look odd: 999.5 m is "1000 m" and 9999 m is "10.00 km". A figure
+    /// exactly half way goes up, as Math.round and toFixed do. The decimal
+    /// point is always a full stop, whatever the phone's language.
+    public static func fmtDist(_ metres: Double) -> String {
+        // Not a distance. The lookup never gives one of these; nothing is
+        // written rather than a number that would mean nothing.
+        guard metres.isFinite, metres >= 0, metres < 1e15 else { return "" }
+        if metres < 1000 {
+            return "\(Int(roundHalfUp(metres))) m"
+        }
+        return "\(fixed(metres / 1000, decimals: metres < 10000 ? 2 : 1)) km"
+    }
+
+    /// Math.round, for a number that is not negative: the nearest whole
+    /// number, and the higher one when exactly half way.
+    private static func roundHalfUp(_ value: Double) -> Double {
+        let below = value.rounded(.down)
+        // This subtraction is exact, so "half way" is judged exactly.
+        return value - below >= 0.5 ? below + 1 : below
+    }
+
+    /// toFixed, for a number of 1 or more: so many decimal places, worked out
+    /// from the exact value the number holds, and up when exactly half way.
+    ///
+    /// Whole-number arithmetic throughout. Multiplying by ten or a hundred
+    /// and rounding the result would go wrong now and then, because the
+    /// multiplication itself rounds (1.45 to one place would come out as
+    /// "1.5", where JavaScript gives "1.4").
+    private static func fixed(_ value: Double, decimals: Int) -> String {
+        let whole = value.rounded(.down)
+        // A number of 1 or more has at most 52 binary places, so its
+        // fraction times 2 to the power 52 is a whole number, exactly.
+        let fraction = UInt64((value - whole) * 4_503_599_627_370_496)
+        var scale: UInt64 = 1
+        for _ in 0..<decimals { scale *= 10 }
+        // fraction * scale / 2^52, to the nearest whole number, half way up.
+        let half: UInt64 = 1 << 51
+        let rounded = (fraction * scale + half) >> 52
+        let total = UInt64(whole) * scale + rounded
+        guard decimals > 0 else { return String(total) }
+        let digits = String(total % scale)
+        let padding = String(repeating: "0", count: max(0, decimals - digits.count))
+        return "\(total / scale).\(padding)\(digits)"
+    }
+}
+
+/// A fix that is a long way from every recorded post.
+///
+/// The nearest post is still the nearest one on record, but it no longer says
+/// where the vehicle is, so the surfaces must not show it as if it did.
+public enum FarPost {
+    /// Straight-line distance in metres beyond which the chosen post is "far".
+    public static let farPostM: Double = 250
+
+    // The two ends of the line shown under a far post. The distance goes
+    // between them.
+    private static let lineStart = "Nearest recorded post · "
+    private static let lineEnd = " away"
+
+    /// True when the chosen post is more than `farPostM` from the fix.
+    public static func isFar(_ distance: Double) -> Bool {
+        return distance > farPostM
+    }
+
+    /// The line shown under a far post in place of its own:
+    /// "Nearest recorded post · 1.24 km away". It says how far the post is and
+    /// nothing else: not that the vehicle is off the road, which is not known.
+    public static func context(distance: Double) -> String {
+        return "\(lineStart)\(DistanceText.fmtDist(distance))\(lineEnd)"
+    }
+
+    /// True when a line under a post is one that `context(distance:)` wrote.
+    /// No recorded post has such a line of its own (the tests check the whole
+    /// list), so the line itself says that the post is far. That is how a far
+    /// post is recognised without adding anything to the snapshot.
+    public static func isContext(_ line: String) -> Bool {
+        return line.hasPrefix(lineStart) && line.hasSuffix(lineEnd)
+    }
+
+    /// True when two snapshots are of a far post and look different only in
+    /// how far away the post is said to be. That distance changes with every
+    /// few metres driven, so the tracker shows it at a slower pace than a
+    /// real change (see `ShowRule`).
+    public static func onlyDistanceDiffers(_ a: PostSnapshot, _ b: PostSnapshot) -> Bool {
+        guard isContext(a.context), isContext(b.context) else { return false }
+        // The same test the surfaces' "has anything changed" uses: different
+        // as they stand, the same once the two lines are made equal.
+        var levelled = a
+        levelled.context = b.context
+        return !a.showsSameAs(b) && levelled.showsSameAs(b)
+    }
+}
+
+/// When the live tracker sends what it knows to the surfaces: step 5 of "on
+/// every fix" (docs/native-apps.md, section 4).
+///
+/// Every update to a Live Activity costs the phone something, and iOS holds
+/// back an app that sends them like a ticking clock. So nothing is sent
+/// unless there is something to say, and what changes all the time is sent
+/// at a slower pace.
+public enum ShowRule {
+    /// A change is shown at most this often.
+    public static let minimumInterval: TimeInterval = 1
+    /// While the post is unchanged, the "updated" time is refreshed this often.
+    public static let heartbeatInterval: TimeInterval = 30
+    /// Far from any recorded post, the distance under the post is refreshed
+    /// this often. It would otherwise change every second for as long as the
+    /// vehicle is off the recorded network. Five seconds is well inside the
+    /// time a moving fix stays current (`StaleRule.movingLimit`).
+    public static let farDistanceInterval: TimeInterval = 5
+    /// While the system's pause accounts for there being no newer position
+    /// (`StaleRule.pauseExplainsSilence`), nothing changes; but the display
+    /// is still sent again this often. A Live Activity shown as current
+    /// carries a time after which iOS marks it out of date by itself, and
+    /// this keeps that time ahead for as long as the app is running.
+    public static let pausedRefreshInterval: TimeInterval = 10 * 60
+
+    /// What the surfaces are told to show.
+    public struct Display: Sendable {
+        /// The post from the newest fix. Nil before the first one.
+        public var snapshot: PostSnapshot?
+        /// Words for a problem, where the surfaces should show any.
+        public var problem: String?
+        /// True when the system has paused its position updates and that
+        /// accounts for the post not being refreshed.
+        public var paused: Bool
+
+        public init(snapshot: PostSnapshot?, problem: String?, paused: Bool) {
+            self.snapshot = snapshot
+            self.problem = problem
+            self.paused = paused
+        }
+
+        /// Nothing to show yet: waiting for the first position.
+        public static let waiting = Display(snapshot: nil, problem: nil, paused: false)
+    }
+
+    /// How the newest state differs from the one last shown.
+    public enum Difference: Sendable {
+        /// Nothing that can be seen. The time of the fix may have moved on.
+        case nothing
+        /// Only how far away a far post is said to be.
+        case farDistance
+        /// Anything else: the post, its line, the carriageway label, stale,
+        /// a problem, or updates resuming after a pause.
+        case change
+        /// The system has just paused its updates because the phone stopped
+        /// moving.
+        case justPaused
+    }
+
+    /// True when two posts (or the lack of one) would not look the same on
+    /// screen. A fix time that has only moved on is not a difference.
+    public static func postDiffers(_ a: PostSnapshot?, _ b: PostSnapshot?) -> Bool {
+        switch (a, b) {
+        case (nil, nil):
+            return false
+        case let (first?, second?):
+            return !first.showsSameAs(second)
+        default:
+            return true
+        }
+    }
+
+    /// How the newest state differs from the one the surfaces were last sent.
+    public static func difference(from shown: Display, to newest: Display) -> Difference {
+        if newest.paused && !shown.paused { return .justPaused }
+        // Updates resuming after a pause shows nothing new, but the Live
+        // Activity must be told: it changes how long the display may go
+        // without an update before iOS marks it out of date.
+        if newest.problem != shown.problem || newest.paused != shown.paused { return .change }
+        guard postDiffers(newest.snapshot, shown.snapshot) else { return .nothing }
+        if let newer = newest.snapshot, let older = shown.snapshot, FarPost.onlyDistanceDiffers(newer, older) {
+            return .farDistance
+        }
+        return .change
+    }
+
+    /// True when `now` is not on the day that `earlier` was on, by the phone's
+    /// own clock.
+    ///
+    /// The surfaces write a time as "14:32", and put the day in front once the
+    /// time is no longer today's. A Live Activity is only drawn again when it
+    /// is sent something, so one left unchanged overnight has to be sent again
+    /// after midnight for its time to gain its day.
+    public static func dayChanged(since earlier: Date, now: Date, timeZone: TimeZone = .current) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        return !calendar.isDate(earlier, inSameDayAs: now)
+    }
+
+    /// True when the newest state should be sent to the surfaces now.
+    ///
+    /// - Parameters:
+    ///   - elapsed: seconds since the surfaces were last sent anything.
+    ///     Negative if the phone's clock has been put back since.
+    ///   - dayChanged: true when midnight has passed since then (see
+    ///     `dayChanged(since:now:timeZone:)`). They are then sent again
+    ///     whatever else has or has not changed.
+    public static func isDue(from shown: Display, to newest: Display,
+                             sinceShown elapsed: TimeInterval, dayChanged: Bool) -> Bool {
+        if dayChanged { return true }
+        // A negative time means the clock was put back: do not wait for it to catch up.
+        let waited = { (interval: TimeInterval) -> Bool in elapsed < 0 || elapsed >= interval }
+        switch difference(from: shown, to: newest) {
+        case .justPaused:
+            // The one thing that does not wait its second. The app may get
+            // no more time to run once updates are paused, and a display
+            // that was not told would be marked out of date within a minute
+            // or two of the vehicle stopping.
+            return true
+        case .change:
+            return waited(minimumInterval)
+        case .farDistance:
+            return waited(farDistanceInterval)
+        case .nothing:
+            if newest.snapshot?.fixTime != shown.snapshot?.fixTime {
+                return waited(heartbeatInterval)
+            }
+            return newest.paused && waited(pausedRefreshInterval)
+        }
+    }
+}
+
+/// Telling a Live Activity that the user took off the screen from one that
+/// iOS removed by itself.
+///
+/// The first means "stop tracking": location must not carry on with nothing
+/// on screen to show for it. The second does not.
+public enum DisplayRule {
+    /// iOS ends a Live Activity by itself when its time is up. One that goes
+    /// at least this many seconds before then was taken off by hand.
+    public static let earlyMargin: TimeInterval = 300
+    /// A follow-on that is due to start within this many seconds may be why
+    /// the old display went: the system making room for it.
+    public static let handoverMargin: TimeInterval = 60
+
+    /// True when a display that is no longer on screen was removed by the user.
+    ///
+    /// - Parameters:
+    ///   - now: the time of the check.
+    ///   - dueToEnd: when iOS itself would have ended the display.
+    ///   - followOnStarts: when the scheduled follow-on starts, or nil if
+    ///     there is none.
+    public static func removedByUser(now: Date, dueToEnd: Date, followOnStarts: Date?) -> Bool {
+        if let next = followOnStarts, now >= next.addingTimeInterval(-handoverMargin) { return false }
+        return now < dueToEnd.addingTimeInterval(-earlyMargin)
     }
 }

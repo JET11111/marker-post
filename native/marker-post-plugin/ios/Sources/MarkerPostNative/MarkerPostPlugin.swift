@@ -49,6 +49,9 @@ public class MarkerPostPlugin: CAPPlugin, CAPBridgedPlugin {
 
     /// { useHeading } -> { active: true, since } or { active: false, reason }.
     /// Never rejects: a refusal by the user or the system is an answer, not an error.
+    /// `reason` is left out when iOS would not start the Live Activity for a
+    /// cause that none of the contract's words fits; the app then says only
+    /// that live tracking could not start.
     @objc func startTracking(_ call: CAPPluginCall) {
         // The app's own default for "prefer my direction of travel" is on.
         let useHeading = call.getBool("useHeading", true)

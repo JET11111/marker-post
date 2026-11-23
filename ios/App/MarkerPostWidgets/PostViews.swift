@@ -8,8 +8,9 @@ import WidgetKit
 // the same on the Lock Screen, in the Dynamic Island, on CarPlay and on the
 // Home Screen as it does in the app (styles.css is the reference).
 //
-// Every string shown here comes straight from the snapshot. Nothing about a
-// post is reworded or rebuilt in Swift.
+// Every string about a post comes straight from the snapshot. Nothing about a
+// post is reworded or rebuilt in Swift. The times, and the few fixed words in
+// front of them, come from SurfaceText (PostSnapshot.swift).
 
 // MARK: - Colours
 
@@ -28,11 +29,25 @@ enum PostPalette {
     static let amberTextOnLight = rgb(0x8F, 0x56, 0x00)
     /// The letter inside a filled amber chip.
     static let chipLetter = rgb(0x1A, 0x12, 0x00)
-    /// Warning text on dark surfaces.
-    static let warning = rgb(0xFF, 0xD9, 0x8A)
-    /// The dark card the Live Activity is drawn on, and its secondary text.
-    static let card = rgb(0x1C, 0x1C, 0x1E)
-    static let secondaryOnCard = rgb(0xA1, 0xA1, 0xAA)
+
+    // Night is the app's own deep navy, not black and grey. These are the
+    // page's dark values for "surface", "fill", "text", "text-2" and "warn".
+
+    /// A card at night: the Live Activity, and a widget on a dark Home Screen.
+    static let nightSurface = rgb(0x12, 0x1B, 0x2E)
+    /// The neutral road badge at night.
+    static let nightFill = rgb(0x1B, 0x27, 0x40)
+    /// Text at night, and the softer text beside it.
+    static let nightText = rgb(0xF3, 0xF6, 0xFB)
+    static let nightSecondary = rgb(0x85, 0x95, 0xAC)
+    /// A warning at night: a stale time, a problem, and the symbols that
+    /// stand for them where there is no room for words.
+    static let warning = rgb(0xF5, 0xC5, 0x42)
+
+    /// The softer text on a light widget (the page's "text-2" by day). The
+    /// system's own secondary colour is too faint there for a line as
+    /// important as the time.
+    static let secondaryOnLight = rgb(0x5A, 0x5A, 0x62)
 
     private static func rgb(_ red: Int, _ green: Int, _ blue: Int) -> Color {
         Color(red: Double(red) / 255.0, green: Double(green) / 255.0, blue: Double(blue) / 255.0)
@@ -41,10 +56,12 @@ enum PostPalette {
 
 /// The colours one surface draws with.
 ///
-/// The Live Activity always sits on its own dark card, so it uses fixed
-/// colours. Widgets sit on whatever the system gives them (light, dark, a
-/// tinted or clear Home Screen, the Lock Screen), so they use the system's
-/// own text colours and never depend on the background for contrast.
+/// The Live Activity always sits on its own navy card, so it uses the night
+/// colours whatever the time of day. A widget on the Home Screen uses the same
+/// night colours when the phone is dark, and the system's text colours on its
+/// light background by day. Where the system recolours the whole widget (a
+/// tinted or clear Home Screen, the Lock Screen), a widget uses the system's
+/// own colours and never depends on a background for contrast.
 struct PostStyle {
     var primary: Color
     var secondary: Color
@@ -60,20 +77,24 @@ struct PostStyle {
     /// see-through and lettering solid: the difference survives any tint.
     var flat: Bool
 
-    /// The Live Activity's dark card and the Dynamic Island.
-    static let darkCard = PostStyle(
-        primary: Color.white,
-        secondary: PostPalette.secondaryOnCard,
+    /// Night: the Live Activity's card, the Dynamic Island, and a widget when
+    /// the phone is dark.
+    static let night = PostStyle(
+        primary: PostPalette.nightText,
+        secondary: PostPalette.nightSecondary,
         amber: PostPalette.amberOnDark,
         outlineLetter: PostPalette.amberOnDark,
-        neutralFill: Color.white.opacity(0.16),
+        neutralFill: PostPalette.nightFill,
         flat: false)
 
-    /// A widget, drawn on the system's own background.
+    /// A widget. `fullColour` is false where the system recolours it.
     static func widget(dark: Bool, fullColour: Bool) -> PostStyle {
-        PostStyle(
+        if fullColour && dark {
+            return PostStyle.night
+        }
+        return PostStyle(
             primary: Color.primary,
-            secondary: Color.secondary,
+            secondary: fullColour ? PostPalette.secondaryOnLight : Color.secondary,
             amber: dark ? PostPalette.amberOnDark : PostPalette.amberOnLight,
             outlineLetter: dark ? PostPalette.amberOnDark : PostPalette.amberTextOnLight,
             neutralFill: Color(uiColor: UIColor.secondarySystemFill),
@@ -96,9 +117,18 @@ struct RoadBadge: View {
     /// Stale: the badge is shown at 55% so it cannot be read as current.
     var dimmed: Bool = false
 
-    /// Interchange names are long ("Chilworth · M3 / M27"), so they are set
-    /// smaller and a little lighter inside the same height of badge.
-    private var isOther: Bool { roadClass != "M" && roadClass != "A" }
+    /// True for a road that is neither a motorway nor an A-road. Those are
+    /// the interchanges, and their names are long ("Chilworth · M3 / M27",
+    /// "M27 / M275 interchange").
+    static func hasLongName(roadClass: String) -> Bool {
+        roadClass != "M" && roadClass != "A"
+    }
+
+    /// Interchange names are set smaller and a little lighter, and may take
+    /// two lines. Two lines of the smaller lettering are no taller than the
+    /// badge already is, so the name stays readable in a narrow place without
+    /// the badge growing.
+    private var isOther: Bool { RoadBadge.hasLongName(roadClass: roadClass) }
     private var textSize: CGFloat { isOther ? fontSize * 0.62 : fontSize }
     private var textWeight: Font.Weight { isOther ? .bold : .heavy }
 
@@ -122,7 +152,8 @@ struct RoadBadge: View {
             Text(verbatim: road)
                 .font(.system(size: textSize, weight: textWeight))
                 .foregroundStyle(textColour)
-                .lineLimit(1)
+                .multilineTextAlignment(.leading)
+                .lineLimit(isOther ? 2 : 1)
                 .minimumScaleFactor(0.5)
                 .padding(.horizontal, fontSize * 0.42)
                 .frame(minHeight: fontSize * 1.5)
@@ -168,6 +199,12 @@ struct CarriagewayChip: View {
         return confirmed ? PostPalette.chipLetter : style.outlineLetter
     }
 
+    /// What a screen reader says. The outline cannot be heard, so "not
+    /// confirmed" is said in words, as the app itself does.
+    private var spokenLabel: String {
+        confirmed ? "Carriageway \(letter)" : "Carriageway \(letter), not confirmed"
+    }
+
     var body: some View {
         Text(verbatim: letter)
             .font(.system(size: height * 0.72, weight: .heavy))
@@ -182,6 +219,7 @@ struct CarriagewayChip: View {
                 shape.strokeBorder(outlineColour, lineWidth: max(1.5, height * 0.045))
             }
             .opacity(dimmed ? 0.55 : 1)
+            .accessibilityLabel(Text(verbatim: spokenLabel))
     }
 }
 
@@ -262,61 +300,33 @@ struct FittedPostNumber: View {
 
 // MARK: - Time line
 
-/// The time every surface must carry. All of these show the time of the GPS
-/// fix the post came from, as a clock time, so an old post reads as old
-/// however long the surface has been left on screen.
-enum PostTime {
-    /// Live surfaces: "Updated 14:32", or "No GPS since 14:32" when stale.
-    static func live(_ snapshot: PostSnapshot, stale: Bool) -> Text {
-        if stale {
-            return Text("No GPS since \(snapshot.fixTime, style: .time)")
-        }
-        return Text("Updated \(snapshot.fixTime, style: .time)")
-    }
-
-    /// Widgets: "Last updated 14:32", or "No GPS since 14:32" when stale.
-    /// Widgets never say "updated" on its own, which could read as live.
-    ///
-    /// `showsDay` adds the day ("Last updated 21 Nov, 14:32") for a fix that
-    /// is not from today: a bare clock time from yesterday afternoon would
-    /// look a few minutes old this afternoon.
-    static func widget(_ snapshot: PostSnapshot, showsDay: Bool) -> Text {
-        if showsDay {
-            let day = PostTime.day(snapshot.fixTime)
-            if snapshot.stale {
-                return Text("No GPS since \(day), \(snapshot.fixTime, style: .time)")
-            }
-            return Text("Last updated \(day), \(snapshot.fixTime, style: .time)")
-        }
-        if snapshot.stale {
-            return Text("No GPS since \(snapshot.fixTime, style: .time)")
-        }
-        return Text("Last updated \(snapshot.fixTime, style: .time)")
-    }
-
-    /// The day of a fix, in the phone's own format: "21 Nov".
-    static func day(_ date: Date) -> String {
-        date.formatted(Date.FormatStyle().day().month(.abbreviated))
-    }
-}
-
-/// The time line as it is drawn: one line that shrinks rather than truncates.
+/// The time every surface must carry, as it is drawn. The words and the time
+/// come from SurfaceText: always the time of the GPS fix the post came from,
+/// as a 24-hour clock time, so an old post reads as old however long the
+/// surface has been left on screen.
+///
+/// The time is never the part that gets cut. The line always has the full
+/// width of its surface, or comes first on a line it shares, and it shrinks
+/// to fit rather than being cut short.
 struct PostTimeLine: View {
-    /// From `PostTime`, or any other line that carries a time.
-    let text: Text
+    /// "Updated 14:32", "Last updated 21 Nov, 14:32", "No GPS since 14:32".
+    let text: String
     let size: CGFloat
     let colour: Color
     /// True when the line is the stale warning rather than a routine time, so
     /// it is set a little heavier.
     var emphasised: Bool = false
+    /// 2 where the text has been given a line break (see LastPostTime).
+    var lines: Int = 1
 
     private var weight: Font.Weight { emphasised ? .semibold : .medium }
 
     var body: some View {
-        text
+        Text(verbatim: text)
             .font(.system(size: size, weight: weight))
             .foregroundStyle(colour)
-            .lineLimit(1)
+            .multilineTextAlignment(.leading)
+            .lineLimit(lines)
             .minimumScaleFactor(0.6)
     }
 }

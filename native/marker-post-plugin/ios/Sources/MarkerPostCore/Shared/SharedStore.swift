@@ -12,8 +12,11 @@ public enum SharedStore {
 
     private static let snapshotKey = "markerpost.snapshot.v1"
 
-    /// Nil when the App Group is not provisioned (for example an unsigned
-    /// simulator build). Everything here then quietly does nothing.
+    /// Not nil when the App Group is missing from the entitlements (an
+    /// unsigned build, such as the device build on GitHub): the app and the
+    /// widgets then each read and write a private copy, so nothing is shared
+    /// and nothing fails. A widget stuck on "No post yet" while the app is
+    /// showing a post usually means exactly that.
     private static var defaults: UserDefaults? { UserDefaults(suiteName: appGroup) }
 
     /// Save the last known post. Pass nil to clear it.

@@ -12,12 +12,32 @@ import WidgetKit
 // done in JavaScript. The plugin only starts and stops the tracker.
 
 /// What the plugin reports to JavaScript about live tracking.
-struct TrackingStatus {
+struct TrackingStatus: Sendable {
     let active: Bool
     /// When the running session started. Nil when not tracking.
     let since: Date?
     /// One of the reason words in docs/native-apps.md section 1, or nil.
     let reason: String?
+}
+
+/// How a request to put the Live Activity back on screen ended. The "Show
+/// nearest marker post" shortcut says which, so that it never reports success
+/// for something that did not happen.
+public enum DisplayRestart: Sendable {
+    /// A fresh Live Activity is on screen.
+    case shown
+    /// Live tracking is not running, so nothing was done. The shortcut never
+    /// switches tracking on.
+    case trackingOff
+    /// iOS would not start a fresh Live Activity, but the one that was on
+    /// screen is still there, and the tracker goes on updating it. Nothing
+    /// was lost by asking, so the answer must not send the driver to the
+    /// phone. (Siri is reported to refuse a new one while another from the
+    /// app is showing, so this may be the usual answer to the spoken shortcut.)
+    case stillShowing
+    /// iOS would not start a Live Activity, and none is on screen. Opening
+    /// the app is the way to get one back.
+    case refused
 }
 
 /// Why no usable position is arriving. Shown on the Live Activity instead of
@@ -65,14 +85,13 @@ private actor PostLookup {
     }
 
     /// Steps 2 to 4 of "on every fix": find the post, decide whether the
-    /// carriageway is confirmed, build the snapshot.
+    /// carriageway is confirmed, build the snapshot. The rules are the
+    /// store's own (`PostStore.liveSnapshot`), including the one for a
+    /// position that is a long way from every recorded post.
     func snapshot(lat: Double, lng: Double, heading: Double?, speed: Double?,
                   useHeading: Bool, fixTime: Date) -> PostSnapshot? {
-        guard let nearest = store.findNearest(lat: lat, lng: lng, heading: heading,
-                                              speed: speed, useHeading: useHeading) else { return nil }
-        let post = store.posts[nearest.index]
-        let confirmed = confirmation.confirmed(post: post, headingUsed: nearest.headingUsed, lat: lat, lng: lng)
-        return post.snapshot(confirmed: confirmed, fixTime: fixTime, stale: false, tracking: true)
+        return store.liveSnapshot(lat: lat, lng: lng, heading: heading, speed: speed,
+                                  useHeading: useHeading, fixTime: fixTime, confirmation: &confirmation)
     }
 
     /// The web app forgets the last confirmation when "prefer my direction of
@@ -181,7 +200,10 @@ public final class MarkerTracker {
 
     // MARK: Hooks for the plugin
 
-    /// Called whenever tracking starts or stops, for any reason.
+    /// Called whenever tracking starts or stops while the app is running,
+    /// for any reason. Not called at launch, when a session is carried on or
+    /// is ended there and then (`resumeAfterLaunch`): the web view does not
+    /// exist yet, and it asks for the status when it starts.
     var onTrackingChanged: ((_ active: Bool, _ reason: String?) -> Void)?
     /// Called with the post found for each fix, but only while the app is on
     /// screen: a web view in the background must not be given work to do.
@@ -194,21 +216,22 @@ public final class MarkerTracker {
     private static let sessionLimit: TimeInterval = 14 * 60 * 60
     /// How often the stale check and the housekeeping run.
     private static let tickSeconds: UInt64 = 5
-    /// A change is shown at most this often.
-    private static let minimumShowInterval: TimeInterval = 1
-    /// While the post is unchanged, the "updated" time is refreshed this often.
-    private static let heartbeatInterval: TimeInterval = 30
     /// Widgets are asked to redraw at most this often. iOS rations the requests.
     private static let widgetReloadInterval: TimeInterval = 15
-    /// After a failed attempt to renew the Live Activity, wait before trying again.
+    /// After the app's own attempt to renew the Live Activity is refused, wait
+    /// before trying again (see `runRenewal`).
     private static let renewRetryInterval: TimeInterval = 60
     /// If the stream of positions ends while tracking is on, start it again after this.
     private static let streamRetrySeconds: UInt64 = 3
+    // How often the surfaces are sent anything is in `ShowRule`, with the
+    // other rules that can be tested without a phone.
 
     // MARK: Session
 
     private var isActive = false
-    private var isStarting = false
+    /// The start that is under way, if any. It can take a long time: it may
+    /// be waiting for the user to answer the permission question.
+    private var startTask: Task<TrackingStatus, Never>?
     private var since: Date?
     private var useHeading = true
     private var lastStopReason: String?
@@ -236,36 +259,33 @@ public final class MarkerTracker {
 
     private var store: PostStore?
     private var lookup: PostLookup?
+    /// After the app was started again mid-session: the reading of the post
+    /// list that `lookup` is waiting for. Nil at any other time.
+    private var resumeTask: Task<Void, Never>?
 
     // MARK: What is known, and what is on screen
 
-    /// The post from the newest fix, with `stale` kept up to date.
+    /// The post from the newest usable fix, with `stale` kept up to date.
     private var latest: PostSnapshot?
     private var problem: TrackingProblem?
     /// When iOS said that the phone had stopped moving and that it was pausing
     /// its updates. Nil while it has not said so. A pause does not by itself
     /// excuse an old position: see `pauseExplainsSilence`.
     private var stationarySince: Date?
-    /// Speed of the newest fix in metres per second. Nil when it had none.
+    /// Speed of the newest usable fix in metres per second. Nil when it had none.
     private var lastSpeed: Double?
 
-    /// What the surfaces were last told to show.
-    private struct Shown {
-        var snapshot: PostSnapshot?
-        var problem: String?
-        /// True when iOS has paused its updates and that accounts for the post
-        /// not being refreshed (see `pauseExplainsSilence`). Only then is the
-        /// Live Activity left without a date to go out of date by itself.
-        var stationary: Bool
-
-        static let waiting = Shown(snapshot: nil, problem: nil, stationary: false)
-    }
-
-    private var shown = Shown.waiting
+    /// What the surfaces were last told to show, and when. `paused` in it is
+    /// true when iOS has paused its updates and that accounts for the post
+    /// not being refreshed (see `pauseExplainsSilence`); the Live Activity is
+    /// then given much longer before iOS marks it out of date by itself.
+    private var shown = ShowRule.Display.waiting
     private var shownAt = Date.distantPast
 
     private let liveActivity: LiveActivityController
-    private var isRenewing = false
+    /// The renewal of the Live Activity that is under way, if any. Only one
+    /// runs at a time.
+    private var renewal: Task<Bool, Never>?
     private var nextRenewAttempt = Date.distantPast
 
     private var lastWidgetReload = Date.distantPast
@@ -300,17 +320,31 @@ public final class MarkerTracker {
     /// opened again in time, or it was suspended before a stop had finished
     /// removing them. Nothing would ever update it, so it is removed here,
     /// together with a follow-on that is still waiting to start.
+    ///
+    /// A session is not carried on either if its Live Activity was taken off
+    /// the screen while the app was not running. That is the user saying
+    /// stop, exactly as it is while the app is running, so location is not
+    /// switched back on. (iOS may start the app in the background at the very
+    /// moment the Live Activity is removed, which is one way to get here.)
     public func resumeAfterLaunch() {
-        guard !isActive, !isStarting else { return }
+        guard !isActive, startTask == nil else { return }
         guard let saved = SavedSession.load() else {
             liveActivity.endAll(finalSnapshot: nil)
             return
         }
-        let age = Date().timeIntervalSince(saved.since)
+        let now = Date()
+        let age = now.timeIntervalSince(saved.since)
         // A start time in the future means the clock was changed: not trustworthy either.
         guard age >= 0, age < MarkerTracker.sessionLimit else {
-            SavedSession.clear()
-            liveActivity.endAll(finalSnapshot: nil)
+            abandonSavedSession(reason: nil)
+            return
+        }
+        // Asked before anything is switched on. Whatever is still on screen
+        // is taken over by the same call.
+        guard liveActivity.adoptExisting(now: now) else {
+            // Gone because Live Activities were switched off in Settings, or
+            // because it was swiped away (or the phone was restarted).
+            abandonSavedSession(reason: liveActivity.isEnabled ? "stopped-by-user" : "activities-disabled")
             return
         }
 
@@ -323,12 +357,15 @@ public final class MarkerTracker {
         resetFixState()
         attachSessions()
         sessionsNeedRefresh = true
-        liveActivity.adoptExisting()
+        // The post list is read in the background. Positions are asked for
+        // at once all the same, as they must be at a launch; the first one
+        // waits for the list (see `readyLookup`).
+        resumeTask = Task { [weak self] in
+            guard let self = self else { return }
+            await self.finishResume(token: token)
+        }
         startUpdates()
         startTicking()
-        Task { [weak self] in
-            await self?.finishResume(token: token)
-        }
     }
 
     /// Put the Live Activity back on screen, but only if live tracking is
@@ -338,11 +375,25 @@ public final class MarkerTracker {
     /// Live Activity after eight hours and a background app may not start
     /// another; an App Intent run by the system may.
     ///
-    /// - Returns: true if a Live Activity was started.
-    @discardableResult
-    public func restartLiveActivityIfTracking() async -> Bool {
-        guard isActive else { return false }
-        return await renewChain()
+    /// - Returns: what happened, for the shortcut to say.
+    public func restartLiveActivityIfTracking() async -> DisplayRestart {
+        guard isActive else { return .trackingOff }
+        // The app may be renewing the display itself at this very moment. If
+        // that works, the display is back and there is nothing left to do.
+        // (A renewal takes itself out of `renewal` before it finishes, so
+        // this cannot wait twice on the same one.)
+        while let running = renewal {
+            if await running.value { return .shown }
+        }
+        guard isActive else { return .trackingOff }
+        let renewed = await beginRenewal(replaceNearlyOver: true).value
+        // Tracking may have been stopped while iOS was being asked.
+        guard isActive else { return .trackingOff }
+        if renewed { return .shown }
+        // Refused. If the display that was there is still there, nothing was
+        // lost, and the driver must not be sent to the phone for it. Only
+        // with nothing on screen is opening the app the thing to do.
+        return liveActivity.isDisplayShowing(now: Date()) ? .stillShowing : .refused
     }
 
     // MARK: - Used by the plugin
@@ -354,11 +405,29 @@ public final class MarkerTracker {
             setUseHeading(wanted)
             return status()
         }
-        // The button in the app is disabled while a start is in progress; this
-        // covers a second call arriving anyway.
-        guard !isStarting else { return TrackingStatus(active: false, since: nil, reason: nil) }
-        isStarting = true
-        defer { isStarting = false }
+        // The button in the app is disabled while a start is in progress, but
+        // a second call can arrive anyway. It waits for the first one's
+        // answer: a refusal of its own would have the app say that tracking
+        // could not start while the first call is still at work.
+        if let running = startTask {
+            let answer = await running.value
+            guard isActive else { return answer }
+            setUseHeading(wanted)
+            return status()
+        }
+        let task = Task<TrackingStatus, Never> { [weak self] in
+            return await self?.runStart(useHeading: wanted)
+                ?? TrackingStatus(active: false, since: nil, reason: nil)
+        }
+        startTask = task
+        return await task.value
+    }
+
+    /// The start itself. Only `start` calls it, and only one at a time.
+    private func runStart(useHeading wanted: Bool) async -> TrackingStatus {
+        // Taken away before the task that runs this finishes, so that a later
+        // call never waits on a start that is over.
+        defer { startTask = nil }
 
         // Without a Live Activity there would be nothing to see, so location
         // must not run either.
@@ -385,7 +454,13 @@ public final class MarkerTracker {
         case .disabled:
             return refused("activities-disabled")
         case .failed:
-            return refused("unsupported")
+            // iOS would not start the Live Activity, for a cause that none
+            // of the reason words fits. It is usually a passing one: the app
+            // was not on screen yet, or the phone already has as many Live
+            // Activities as it allows. So no reason is given, and the app
+            // says only that live tracking could not start. "unsupported"
+            // would have it say that this phone can never do it.
+            return refused(nil)
         }
 
         sessionToken += 1
@@ -394,6 +469,10 @@ public final class MarkerTracker {
         useHeading = wanted
         lastStopReason = nil
         resetFixState()
+        // The Live Activity has just gone up, saying that it is waiting for
+        // GPS and when it started. That is the first thing the surfaces were
+        // sent, so the pace of what follows is counted from it (see `flush`).
+        shownAt = startedAt
         // Made now, while the app is on screen: iOS does not let an app begin
         // a background location session from the background.
         attachSessions()
@@ -429,6 +508,9 @@ public final class MarkerTracker {
         finalSnapshot?.tracking = false
         if let finalSnapshot = finalSnapshot {
             SharedStore.write(finalSnapshot)
+        } else {
+            // Stopped before this run of the app had found a post.
+            MarkerTracker.markStoredPostUntracked()
         }
         requestWidgetReload(force: true)
 
@@ -468,19 +550,58 @@ public final class MarkerTracker {
 
     // MARK: - Starting and resuming
 
-    private func refused(_ reason: String) -> TrackingStatus {
+    /// The answer to a start that did not happen. `reason` is one of the
+    /// contract's words, or nil when none of them fits.
+    private func refused(_ reason: String?) -> TrackingStatus {
         lastStopReason = reason
         return TrackingStatus(active: false, since: nil, reason: reason)
     }
 
+    /// At launch, a saved session that is not carried on: forget it, take the
+    /// "tracked" mark off the post it left in the shared store, and remove
+    /// whatever Live Activity it left behind. Location is never started.
+    private func abandonSavedSession(reason: String?) {
+        SavedSession.clear()
+        MarkerTracker.markStoredPostUntracked()
+        liveActivity.endAll(finalSnapshot: nil)
+        lastStopReason = reason
+    }
+
+    /// A session can end before this run of the app has found a post: it is
+    /// stopped straight after the app was started again, or it is not
+    /// carried on at all. The shared store may then still hold the post the
+    /// same session wrote earlier, marked as tracked. Tracking is over, so
+    /// the mark comes off. The post and its time stay exactly as they are.
+    private static func markStoredPostUntracked() {
+        guard var stored = SharedStore.read(), stored.tracking else { return }
+        stored.tracking = false
+        SharedStore.write(stored)
+    }
+
     private func finishResume(token: Int) async {
         let loaded = await loadStore()
+        resumeTask = nil
         guard isActive, token == sessionToken else { return }
         guard let posts = loaded else {
             stop(reason: "no-data")
             return
         }
         lookup = PostLookup(store: posts)
+    }
+
+    /// The lookup, waiting first for the post list if it is still being read
+    /// after a relaunch. Nil if tracking stopped meanwhile.
+    ///
+    /// A position that arrives in that gap must not be thrown away. If the
+    /// vehicle is standing still it may be the only one iOS sends before it
+    /// pauses its updates, and the display would then stay on "Waiting for
+    /// GPS" until the vehicle moved.
+    private func readyLookup(token: Int) async -> PostLookup? {
+        if lookup == nil, let reading = resumeTask {
+            await reading.value
+        }
+        guard isActive, token == sessionToken else { return nil }
+        return lookup
     }
 
     private func loadStore() async -> PostStore? {
@@ -523,7 +644,7 @@ public final class MarkerTracker {
         problem = nil
         stationarySince = nil
         lastSpeed = nil
-        shown = Shown.waiting
+        shown = ShowRule.Display.waiting
         shownAt = Date.distantPast
         nextRenewAttempt = Date.distantPast
     }
@@ -602,13 +723,33 @@ public final class MarkerTracker {
             return
         }
 
-        // After a relaunch the post list may still be loading. The next fix is a second away.
-        guard let lookup = lookup else {
+        // A position that is too rough is not a position. The posts are 100 m
+        // apart, and one that may be further out than that cannot tell a post
+        // from the next. It is not used at all: it does not move the post,
+        // and it does not refresh the "updated" time or put off the moment
+        // the last good fix goes stale.
+        guard FixRule.accuracyIsUsable(location.horizontalAccuracy) else {
+            // It does show that positions are arriving again, so words
+            // about why none were (permission, Precise Location) no longer
+            // hold. A post they dimmed stays dimmed.
+            problem = nil
             flush(now: Date())
             return
         }
+
+        // After a relaunch the post list may still be being read. The
+        // position waits for it (see `readyLookup`).
+        guard let lookup = await readyLookup(token: token) else {
+            flush(now: Date())
+            return
+        }
+
+        // The time of a fix is the time the position was true: the time the
+        // system stamped it with, not the time it arrived, and never later
+        // than now. The stale rule counts from it.
+        let fixTime = FixRule.fixTime(reported: location.timestamp, now: Date())
         // Never let an older position replace a newer one.
-        if let known = latest, location.timestamp < known.fixTime {
+        if let known = latest, fixTime < known.fixTime {
             flush(now: Date())
             return
         }
@@ -617,7 +758,6 @@ public final class MarkerTracker {
         // either when it has no value. The compass is never used.
         let speed = Geo.travelSpeed(location.speed)
         let heading = Geo.travelHeading(course: location.course, speed: location.speed)
-        let fixTime = location.timestamp
         let coordinate = location.coordinate
 
         // Steps 2 to 4, off the main thread.
@@ -686,50 +826,27 @@ public final class MarkerTracker {
         return problem.text
     }
 
-    private static func differ(_ a: PostSnapshot?, _ b: PostSnapshot?) -> Bool {
-        switch (a, b) {
-        case (nil, nil):
-            return false
-        case let (first?, second?):
-            return !first.showsSameAs(second)
-        default:
-            return true
-        }
-    }
-
-    /// Step 5 of "on every fix": show the newest state only if something
-    /// visible changed, and not more than once a second; otherwise refresh the
-    /// time every 30 seconds.
+    /// Step 5 of "on every fix": send the newest state to the surfaces, but
+    /// only when `ShowRule` says it is time. In short: a change at most once
+    /// a second; the distance to a far post every five seconds; otherwise
+    /// the time every 30 seconds; while iOS's pause accounts for there being
+    /// nothing new, once every ten minutes all the same; and once after
+    /// midnight, so that a time from yesterday is shown with its day.
     private func flush(now: Date) {
         guard isActive else { return }
         // Judged for the post on screen, not taken from iOS's word alone: a
         // pause only counts when it accounts for that post not being refreshed.
         let paused = latest.map { pauseExplainsSilence(fixTime: $0.fixTime, speed: lastSpeed) } ?? false
-        let candidate = Shown(snapshot: latest, problem: problemText, stationary: paused)
-        let postChanged = MarkerTracker.differ(candidate.snapshot, shown.snapshot)
-        // A change between moving and paused shows nothing new, but the
-        // Live Activity needs it at once: it decides whether the system may
-        // mark the activity as out of date by itself.
-        let changed = postChanged || candidate.problem != shown.problem || candidate.stationary != shown.stationary
-        let elapsed = now.timeIntervalSince(shownAt)
-        // A negative time means the clock was put back: do not wait for it to catch up.
-        let waited = { (interval: TimeInterval) -> Bool in elapsed < 0 || elapsed >= interval }
+        let candidate = ShowRule.Display(snapshot: latest, problem: problemText, paused: paused)
+        // "Distant past" means this run of the app has sent nothing yet.
+        let dayChanged = shownAt != Date.distantPast && ShowRule.dayChanged(since: shownAt, now: now)
+        guard ShowRule.isDue(from: shown, to: candidate, sinceShown: now.timeIntervalSince(shownAt),
+                             dayChanged: dayChanged) else { return }
 
-        if changed {
-            // The one thing that does not wait its second: iOS saying it has
-            // paused updates because the phone stopped moving. The app may get
-            // no more time to run after that, and if the Live Activity were
-            // not told now it would go out of date by itself while parked.
-            let justStopped = candidate.stationary && !shown.stationary
-            guard justStopped || waited(MarkerTracker.minimumShowInterval) else { return }
-        } else {
-            let timeMoved = candidate.snapshot?.fixTime != shown.snapshot?.fixTime
-            guard timeMoved, waited(MarkerTracker.heartbeatInterval) else { return }
-        }
-
+        let postChanged = ShowRule.postDiffers(candidate.snapshot, shown.snapshot)
         shown = candidate
         shownAt = now
-        liveActivity.show(snapshot: candidate.snapshot, problem: candidate.problem, stationary: candidate.stationary)
+        liveActivity.show(snapshot: candidate.snapshot, problem: candidate.problem, stationary: candidate.paused)
         if let snapshot = candidate.snapshot {
             SharedStore.write(snapshot)
             if postChanged {
@@ -798,7 +915,8 @@ public final class MarkerTracker {
             snapshot.stale = true
             latest = snapshot
         }
-        // Also shows a change that was held back by the once-a-second limit.
+        // Also shows a change that was held back by one of the limits, and
+        // sends the display again when that is due while iOS has paused.
         flush(now: now)
 
         switch liveActivity.reconcile(now: now) {
@@ -823,23 +941,47 @@ public final class MarkerTracker {
             stop(reason: "activities-disabled")
             return
         }
-        if !isRenewing, now >= nextRenewAttempt, liveActivity.needsRenewal(now: now) {
-            Task { [weak self] in
-                await self?.renewChain()
-            }
+        if renewal == nil, now >= nextRenewAttempt, liveActivity.needsRenewal(now: now) {
+            beginRenewal(replaceNearlyOver: false)
         }
     }
 
     /// Start a fresh Live Activity (and, where iOS allows, schedule the one
     /// that follows it). Only works in the foreground or inside an App Intent
     /// that the system runs.
+    ///
+    /// Only one renewal runs at a time: ask only while `renewal` is nil. The
+    /// task's value says whether a fresh Live Activity is on screen.
+    ///
+    /// - Parameter replaceNearlyOver: true when the shortcut is asking. A
+    ///   display that has all but run out may then be ended to get a new one
+    ///   (see `LiveActivityController.renewChain`).
     @discardableResult
-    private func renewChain() async -> Bool {
-        guard isActive, !isRenewing else { return false }
-        isRenewing = true
-        let renewed = await liveActivity.renewChain(now: Date())
-        isRenewing = false
-        nextRenewAttempt = renewed ? Date.distantPast : Date().addingTimeInterval(MarkerTracker.renewRetryInterval)
+    private func beginRenewal(replaceNearlyOver: Bool) -> Task<Bool, Never> {
+        let task = Task<Bool, Never> { [weak self] in
+            return await self?.runRenewal(replaceNearlyOver: replaceNearlyOver) ?? false
+        }
+        renewal = task
+        return task
+    }
+
+    private func runRenewal(replaceNearlyOver: Bool) async -> Bool {
+        // Taken away before the task that runs this finishes, so that whoever
+        // waits for a renewal never finds a finished one still standing here.
+        defer { renewal = nil }
+        guard isActive else { return false }
+        let renewed = await liveActivity.renewChain(now: Date(), replaceNearlyOver: replaceNearlyOver)
+        if renewed {
+            nextRenewAttempt = Date.distantPast
+        } else if !replaceNearlyOver {
+            // The app's own attempt was refused: wait before the next one.
+            // A refusal of the shortcut's request (the one made with
+            // `replaceNearlyOver`) sets no wait. It says nothing about what
+            // the app may do once it is on screen, and the shortcut may just
+            // have told the driver to open the app: that must then renew the
+            // display at once.
+            nextRenewAttempt = Date().addingTimeInterval(MarkerTracker.renewRetryInterval)
+        }
         return renewed
     }
 }
