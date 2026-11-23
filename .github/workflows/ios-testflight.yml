@@ -4,6 +4,7 @@
 # It runs when you:
 #   * press "Run workflow" on the Actions page (tick "bootstrap" the first time);
 #   * push a version tag, for example  git tag v2.0.0 && git push origin v2.0.0
+#     (the tag must match "version" in package.json, or the build stops);
 #   * and on the 1st of each month, because TestFlight builds expire after 90 days.
 # Until the setup is done (no MATCH_GIT_URL variable) every run is skipped.
 #
@@ -32,7 +33,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-testflight
+  # One real build at a time. A build that is waiting for approval holds up the
+  # ones behind it until it is approved or rejected (docs/ios-testflight.md).
+  # A push to a working branch runs nothing (see the job condition), so it gets
+  # a group of its own: it must never wait behind, or take the place of, a
+  # build that is waiting for approval.
+  group: ${{ github.event_name == 'push' && github.ref_type == 'branch' && format('ios-testflight-noop-{0}', github.run_id) || 'ios-testflight' }}
   cancel-in-progress: false
 
 jobs:
@@ -71,6 +77,15 @@ jobs:
           required: "true"
       - name: Build the web app and the lookup data for the phone
         run: npm run build:native
+      # The Lock Screen lookup must give the web app's answers for exactly this
+      # commit and this data. Nothing is signed or uploaded if it does not.
+      - name: Lookup tests (same answers as the web app)
+        working-directory: native/marker-post-plugin
+        env:
+          MARKERPOST_CORE_ONLY: "1"
+        run: |
+          swift --version
+          swift test
       - name: Copy it into the Xcode project
         run: npx cap sync ios
       - name: The Xcode project lists every source file

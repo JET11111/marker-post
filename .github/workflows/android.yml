@@ -18,6 +18,11 @@ on:
       - '*.js'
       - '*.css'
       - 'index.html'
+      # The post and junction records behind the phone's own lookup. Not all of
+      # data/: the road network and the signs are refreshed by their own jobs.
+      - 'data/posts.json'
+      - 'data/posts-supplemental.json'
+      - 'data/junctions.json'
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.json'
@@ -33,6 +38,9 @@ on:
       - '*.js'
       - '*.css'
       - 'index.html'
+      - 'data/posts.json'
+      - 'data/posts-supplemental.json'
+      - 'data/junctions.json'
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.json'

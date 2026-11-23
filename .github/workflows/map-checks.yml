@@ -1,7 +1,9 @@
 name: map-checks
 on:
   pull_request:
-    paths: ['*.js', '*.css', 'index.html', 'core/**', 'data/network.json', 'data/posts.json', 'data/junctions.json', 'data/posts-supplemental.json', 'scripts/**', 'tests/**', 'vendor/**', 'package.json', '.github/workflows/map-checks.yml']
+    # The workflows and the TestFlight lane are in this list because the tests
+    # hold them to the release rules (tests/pipelines.test.mjs).
+    paths: ['*.js', '*.css', 'index.html', 'core/**', 'data/network.json', 'data/posts.json', 'data/junctions.json', 'data/posts-supplemental.json', 'scripts/**', 'tests/**', 'vendor/**', 'package.json', '.github/workflows/**', 'ios/App/fastlane/**']
   push:
     branches: ['feature/**']
   workflow_dispatch:

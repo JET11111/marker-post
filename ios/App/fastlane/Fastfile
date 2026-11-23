@@ -37,6 +37,15 @@ platform :ios do
     widget_id = "#{app_id}.widgets"
     bootstrap = ENV["BOOTSTRAP_SIGNING"].to_s == "true"
 
+    # The version is the one in package.json, like the app's own Settings and
+    # about, Copy diagnostics, Android and the Xcode project. A version tag
+    # (v2.1.0, or v2.1.0-rc.1) must agree with it. Checked here, before
+    # anything is signed.
+    version = JSON.parse(File.read(File.join(repo_root, "package.json"))).fetch("version")
+    if ENV["GITHUB_REF_TYPE"] == "tag" && ENV["GITHUB_REF_NAME"].to_s =~ /\Av(\d+\.\d+\.\d+)/ && Regexp.last_match(1) != version
+      UI.user_error!("Tag #{ENV['GITHUB_REF_NAME']} does not match version #{version} in package.json. Change the version there first: docs/ios-testflight.md.")
+    end
+
     # A temporary keychain for the certificate, removed with the machine.
     setup_ci
 
@@ -88,12 +97,6 @@ platform :ios do
       )
     end
 
-    # Version: a tag such as v2.1.0 (or v2.1.0-rc.1) wins, otherwise package.json.
-    version = if ENV["GITHUB_REF_TYPE"] == "tag" && ENV["GITHUB_REF_NAME"].to_s =~ /\Av(\d+\.\d+\.\d+)/
-                Regexp.last_match(1)
-              else
-                JSON.parse(File.read(File.join(repo_root, "package.json"))).fetch("version")
-              end
     build_number = latest_testflight_build_number(
       api_key: api_key,
       app_identifier: app_id,

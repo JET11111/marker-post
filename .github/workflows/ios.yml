@@ -19,6 +19,11 @@ on:
       - '*.js'
       - '*.css'
       - 'index.html'
+      # The post and junction records behind the phone's own lookup. Not all of
+      # data/: the road network and the signs are refreshed by their own jobs.
+      - 'data/posts.json'
+      - 'data/posts-supplemental.json'
+      - 'data/junctions.json'
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.json'
@@ -33,6 +38,9 @@ on:
       - '*.js'
       - '*.css'
       - 'index.html'
+      - 'data/posts.json'
+      - 'data/posts-supplemental.json'
+      - 'data/junctions.json'
       - 'package.json'
       - 'package-lock.json'
       - 'capacitor.config.json'
@@ -109,11 +117,29 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Build the web app and the lookup data for the phone
         run: npm run build:native
+      # The TestFlight job runs the lookup tests at this point, in the same
+      # checkout as the build it then signs. Doing the same on this leg proves
+      # on every change that the two get on together, without waiting for a
+      # real upload.
+      - name: Lookup tests in this checkout, as the TestFlight job runs them
+        if: matrix.pick == '26'
+        working-directory: native/marker-post-plugin
+        env:
+          MARKERPOST_CORE_ONLY: "1"
+        run: |
+          swift --version
+          swift test
       - name: Copy it into the Xcode project
         run: npx cap sync ios
 
       - name: The Xcode project lists every source file
         run: node scripts/ios-project.mjs --check
+      # The TestFlight lane only ever runs with the signing secrets, after an
+      # approval. This proves on every change that it is at least valid Ruby.
+      # It reads the file and runs nothing in it.
+      - name: The TestFlight lane is valid Ruby
+        if: matrix.pick == '26'
+        run: ruby -c ios/App/fastlane/Fastfile
       - name: One iOS version everywhere
         run: |
           grep -n 'platforms' ios/App/CapApp-SPM/Package.swift
