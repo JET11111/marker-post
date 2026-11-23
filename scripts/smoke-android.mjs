@@ -12,11 +12,13 @@
 // the app (a debug build lets a tool read its web page) and checks that:
 //   * the app starts and shows an M27 A-carriageway post for that drive;
 //   * the map draws, with no errors recorded;
-//   * live tracking puts the post in an ongoing notification, and stops cleanly.
+//   * live tracking puts the post in an ongoing notification, and stops cleanly;
+//   * the home screen widget draws in each of its states with nothing cut off,
+//     by day, by night and with large text, on a screen only the debug build has.
 // It also takes pictures of each step, kept with the run.
 //
-// What it cannot check: a real phone's GPS, battery behaviour, or the widget
-// (nothing can place a widget on a home screen from the command line).
+// What it cannot check: a real phone's GPS, battery behaviour, or the widget on
+// a real home screen (nothing can place one there from the command line).
 
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -42,6 +44,8 @@ const shot = (name) => {
   console.log(`  picture: ${name}.png`);
 };
 const openLink = (path) => adb('shell', 'am', 'start', '-W', '-a', 'android.intent.action.VIEW', '-d', `markerpost://${path}`, APP_ID);
+// Debug builds only: the home screen widget in each of its states (see below).
+const PREVIEW = `${APP_ID}/io.github.jet11111.markerpost.nativecore.WidgetPreviewActivity`;
 
 // ------------------------------------------------------------ a moving GPS
 
@@ -164,6 +168,8 @@ try {
     return /^M27 \d+\.\d [AB]$/.test(title) ? { title, body } : null;
   }, 40000).catch((e) => ({ error: e.message }));
   check(!notification.error, 'the notification shows the post', notification.error || `${notification.title} | ${notification.body}`);
+  // The time comes first, so it is never the part a one-line notification cuts off.
+  if (!notification.error) check(/^Updated \d\d:\d\d( · |$)/.test(notification.body), 'the notification text starts with the time', notification.body);
   shot('3-live-tracking-on');
   quiet('shell', 'cmd', 'statusbar', 'expand-notifications');
   await sleep(2500);
@@ -185,8 +191,13 @@ try {
   openLink('live/stop');
   await until('live tracking to stop', async () => (await text('live-label')) === 'Start live tracking', 30000)
     .then(() => check(true, 'live tracking stops'), () => check(false, 'live tracking stops'));
-  await sleep(2500);
-  check(!quiet('shell', 'dumpsys', 'notification', '--noredact').includes(`pkg=${APP_ID}`), 'the notification has gone');
+  // A slow emulator can take a few seconds to take the notification down, so
+  // it is given up to 20 s, and the time it took is reported: a notification
+  // that stays (or comes back) still fails.
+  const stopAsked = Date.now();
+  await until('the notification to go', async () => !quiet('shell', 'dumpsys', 'notification', '--noredact').includes(`pkg=${APP_ID}`), 20000)
+    .then(() => check(true, 'the notification has gone', `after ${((Date.now() - stopAsked) / 1000).toFixed(1)} s`),
+      () => check(false, 'the notification has gone', 'still there 20 s after tracking stopped'));
 
   quiet('shell', 'cmd', 'uimode', 'night', 'no');
   openLink('nearest');
@@ -201,6 +212,57 @@ try {
   const errors = String(report).split('\n').filter((line) => / ERROR /.test(line));
   check(errors.length === 0, 'the app recorded no errors', errors.slice(0, 3).join(' | '));
 
+  // The home screen widget. Nothing can place one on a home screen from the
+  // command line, so the debug build has a screen that draws it in each of its
+  // states with the widget's own code (WidgetPreviewActivity.kt). The screen
+  // measures what it drew, marks in red any tile with something cut off, and
+  // writes that to the log with what the notification would say for the same
+  // posts. It draws itself again when the colours or the text size change.
+  const previewLog = () => {
+    const all = quiet('logcat', '-d', '-s', 'MarkerPostPreview:I');
+    const start = all.lastIndexOf('Marker Post widget, debug preview');
+    return start < 0 ? '' : all.slice(start);
+  };
+  const tileLine = (log, tile, part) => log.split('\n').find((l) => l.includes(`${tile}: ${part} [`)) || 'nothing in the log';
+  // quiet(), so that a build without the screen fails this check and not the whole run.
+  quiet('shell', 'am', 'start', '-W', '-n', PREVIEW);
+  await sleep(4000);
+  shot('8-widget-light');
+  const day = previewLog();
+  writeFileSync(join(OUT, 'widget-preview.txt'), day);
+  check(day.includes('day colours, text size 1.0'), 'the widget preview screen opens', day.split('\n')[0] || 'nothing in the log from it');
+  check(/checked 7 tiles, 0 with something cut/.test(day), 'nothing on the widget is cut off at the ordinary text size',
+    day.split('\n').filter((l) => /cut \[(?!nothing)/.test(l) || /checked \d+ tiles/.test(l)).join(' | '));
+  check(/Letter not confirmed: title \[M27 17\.4 A\] text \[Updated \d\d:\d\d · Check carriageway · J4 – J5\] chip \[17\.4\]/.test(day),
+    'a carriageway letter that is not confirmed is said in words on the notification', tileLine(day, 'Letter not confirmed', 'title'));
+  check(/Far from a post: title \[M3 117\.4\] text \[Updated \d\d:\d\d · Nearest recorded post · 1\.24 km away · Check carriageway\] chip \[\]/.test(day),
+    'far from a post the notification says so straight after the time, with no letter and no chip', tileLine(day, 'Far from a post', 'title'));
+  check(/No GPS \(stale\): title \[M27 17\.4 A\] text \[No GPS since \d\d:\d\d · last known post · J4 – J5\] chip \[\]/.test(day),
+    'a stale notification says "No GPS since" and has no chip', tileLine(day, 'No GPS (stale)', 'title'));
+
+  quiet('shell', 'cmd', 'uimode', 'night', 'yes');
+  await sleep(4000);
+  shot('9-widget-dark');
+  check(previewLog().includes('night colours'), 'the widget preview is drawn again in the night colours');
+  quiet('shell', 'cmd', 'uimode', 'night', 'no');
+
+  // Text 30% larger: the setting most likely to squeeze the post number out.
+  quiet('shell', 'settings', 'put', 'system', 'font_scale', '1.3');
+  await sleep(5000);
+  shot('10-widget-large-text');
+  const large = previewLog();
+  quiet('shell', 'settings', 'put', 'system', 'font_scale', '1.0');
+  writeFileSync(join(OUT, 'widget-preview-large-text.txt'), large);
+  check(large.includes('text size 1.3'), 'the widget preview is drawn again with large text', large.split('\n')[0]);
+  for (const tile of ['Letter confirmed', 'Letter not confirmed', 'No GPS (stale)', 'Long line']) {
+    const measured = tileLine(large, tile, 'number');
+    check(measured.includes('cut [nothing]'), `with large text nothing is cut off on a widget of ordinary size: ${tile}`, measured.replace(/^.*MarkerPostPreview: /, ''));
+  }
+  // The smallest widget with large text is at the limit of what can fit. Reported, not failed.
+  for (const tile of ['Link, earlier day', 'Far from a post', 'No GPS, earlier day']) {
+    console.log(`  smallest widget, large text: ${tileLine(large, tile, 'number').replace(/^.*MarkerPostPreview: /, '')}`);
+  }
+
   // The release build: same code, built the way a store build is. It replaces
   // the debug build on the emulator (both are signed with the same key here).
   if (releaseApk) {
@@ -213,7 +275,12 @@ try {
     check(Boolean(quiet('shell', 'pidof', APP_ID).trim()), 'the release build starts and keeps running');
     const crashes = quiet('logcat', '-d', '-b', 'crash', '-t', '200');
     check(!crashes.includes(APP_ID), 'the release build did not crash', crashes.split('\n').filter((l) => /FATAL|Exception/.test(l)).slice(0, 2).join(' | '));
-    shot('8-release-build');
+    shot('11-release-build');
+    // The widget preview screen must not be in the build that goes to a store.
+    // "am" reports its refusal as an error, which run() would throw away, so
+    // the phone's own shell is asked to keep the words and report success.
+    const refused = quiet('shell', `am start -W -n ${PREVIEW} 2>&1; true`);
+    check(/does not exist|Error type 3/.test(refused), 'the widget preview screen is not in the release build', refused.trim().split('\n').pop());
   } else {
     console.log('  note: no release APK beside the debug one, so only the debug build was run.');
   }
@@ -222,6 +289,7 @@ try {
   try { shot('failure'); } catch { /* no picture possible */ }
 } finally {
   clearInterval(gps);
+  quiet('shell', 'settings', 'put', 'system', 'font_scale', '1.0');
   try { page?.socket.close(); } catch { /* already closed */ }
   writeFileSync(join(OUT, 'logcat.txt'), quiet('logcat', '-d', '-t', '4000'));
 }

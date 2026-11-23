@@ -4,6 +4,11 @@
   The post itself (road, chainage, letter, reference, junction line) is never
   worded here: it is copied from the snapshot, which the app's own JavaScript
   prepared. The carriageway is always its letter, never a compass direction.
+
+  Two things are worded in the Kotlin instead, because they are checked there
+  against the web app's own wording: the time ("14:32", "21 Nov, 14:32";
+  SurfaceClock) and the line shown a long way from every recorded post
+  ("Nearest recorded post · 1.24 km away"; TrackingRules.farContext).
 -->
 <resources>
 
@@ -13,26 +18,41 @@
 
     <!-- The ongoing notification. The title is the post on one line ("M27 17.4 A"). -->
     <string name="markerpost_waiting_for_gps">Waiting for GPS…</string>
-    <!-- 1: the junction line of the post ("J4 – J5"). 2: a time ("14:32"). -->
-    <string name="markerpost_notification_context_updated">%1$s · updated %2$s</string>
-    <!-- Used when the post has no junction line. 1: a time. -->
+    <!-- The text under the title is built from the parts below, joined in
+         this order: the time; "Check carriageway" when it applies; "last
+         known post" when there is no recent position; then the junction line
+         of the post. For example "Updated 14:32 · J4 – J5", or
+         "No GPS since 14:32 · Check carriageway · last known post · J4 – J5".
+         The time comes first because a lock screen cuts a long line at its
+         end, and the time must never be the part that is lost.
+         A long way from every recorded post, the line that says so comes
+         straight after the time instead of last:
+         "Updated 14:32 · Nearest recorded post · 1.24 km away · Check carriageway".
+         The order is decided in the Kotlin (Snapshot.notificationParts). -->
+    <!-- 1: a time ("14:32", or "21 Nov, 14:32" when that was not today). -->
     <string name="markerpost_notification_updated">Updated %1$s</string>
-    <!-- No recent position. 1: the time of the last one. -->
-    <string name="markerpost_notification_stale">No GPS since %1$s · last known post</string>
+    <!-- The carriageway letter was chosen by position only. A notification cannot
+         draw the outlined letter the app and the widget use, so it says it in words. -->
+    <string name="markerpost_check_carriageway">Check carriageway</string>
+    <string name="markerpost_last_known_post">last known post</string>
+    <!-- Two parts of one line. 1: what comes first. 2: what follows. -->
+    <string name="markerpost_joined">%1$s · %2$s</string>
     <string name="markerpost_action_stop">Stop</string>
 
+    <!-- No recent position, on the notification and on the widget. 1: the time of the last one. -->
+    <string name="markerpost_no_gps_since">No GPS since %1$s</string>
+
     <!-- The home screen widget. -->
-    <string name="markerpost_widget_label">Nearest marker post</string>
+    <string name="markerpost_widget_label">Last known marker post</string>
     <string name="markerpost_widget_description">The last known marker post, and when it was updated.</string>
     <string name="markerpost_widget_empty_title">No post yet</string>
     <string name="markerpost_widget_empty_action">Open Marker Post</string>
-    <!-- The time line. 1: a time ("14:32", or "14:32, 21 Nov" when that was not today). -->
-    <string name="markerpost_widget_live">Live · %1$s</string>
-    <string name="markerpost_widget_no_gps_since">No GPS since %1$s</string>
+    <!-- The time line. A widget is not a live display, so it never says "Live".
+         1: a time ("14:32", or "21 Nov, 14:32" when that was not today). -->
     <string name="markerpost_widget_last_updated">Last updated %1$s</string>
-
-    <!-- A time that was not today. 1: the time ("14:32"). 2: the day ("21 Nov"). -->
-    <string name="markerpost_time_on_another_day">%1$s, %2$s</string>
+    <!-- What a screen reader says for a carriageway letter drawn as an outline
+         (chosen by position only). 1: the letter. -->
+    <string name="markerpost_letter_unconfirmed">%1$s, check carriageway</string>
 
     <!-- Sample content for the widget picker only (the same sample post the iPhone widget gallery shows). -->
     <string name="markerpost_preview_road" translatable="false">M27</string>

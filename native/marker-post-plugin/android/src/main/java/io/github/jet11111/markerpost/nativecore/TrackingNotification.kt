@@ -26,9 +26,6 @@ object TrackingNotification {
     private const val REQUEST_STOP = 2
     private const val REQUEST_DISMISSED = 3
 
-    /** Android shows a status bar chip in full only up to this many characters. */
-    private const val MAX_CHIP_CHARACTERS = 7
-
     /**
      * Creates the notification channel (Android 8 and later). Safe to call
      * every time: an existing channel keeps the importance the user has set.
@@ -51,6 +48,20 @@ object TrackingNotification {
     }
 
     /**
+     * True when the user has switched off the "Live tracking" category by
+     * itself (Android 8 and later), leaving the app's other notifications on.
+     * Tracking then runs with nothing to see, exactly as when notifications
+     * are off for the whole app, and the web app is told the same way.
+     */
+    fun channelSwitchedOff(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
+        // No channel yet: tracking has never started, so nothing is switched off.
+        val channel = manager.getNotificationChannel(CHANNEL_ID) ?: return false
+        return channel.importance == NotificationManager.IMPORTANCE_NONE
+    }
+
+    /**
      * Builds the notification for a snapshot, or the "Waiting for GPS…" one
      * when [snapshot] is null (before the first fix).
      */
@@ -61,7 +72,7 @@ object TrackingNotification {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
-            // The time is written into the text ("updated 14:32"); the
+            // The time is written into the text ("Updated 14:32"); the
             // notification's own clock would show when it was last redrawn,
             // which is not the same thing.
             .setShowWhen(false)
@@ -77,12 +88,17 @@ object TrackingNotification {
             .setDeleteIntent(toService(context, TrackingService.ACTION_DISMISSED, REQUEST_DISMISSED))
 
         val text = SurfaceText.notificationText(context, snapshot)
-        if (text != null) builder.setContentText(text)
+        if (text != null) {
+            builder.setContentText(text)
+            // Closed up, a notification shows one line of its text and cuts
+            // the end off a long one. Opened out, this shows all of it.
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(text))
+        }
 
         val open = openApp(context)
         if (open != null) builder.setContentIntent(open)
 
-        requestLiveUpdate(builder, chipText(snapshot))
+        requestLiveUpdate(builder, snapshot?.chipText())
         return builder.build()
     }
 
@@ -95,22 +111,13 @@ object TrackingNotification {
      * These two calls exist from androidx.core 1.17.0, the version Capacitor 8
      * pins. If the build ever reports them missing, delete this function's two
      * lines: everything else works without them.
+     *
+     * [chip] is the post for the chip (Snapshot.chipText), or null for no
+     * text: while waiting for GPS, and whenever the snapshot gives none.
      */
     private fun requestLiveUpdate(builder: NotificationCompat.Builder, chip: String?) {
         builder.setRequestPromotedOngoing(true)
         if (chip != null) builder.setShortCriticalText(chip)
-    }
-
-    /**
-     * The post for the status bar chip ("17.4A"), or null for no text.
-     * Nothing while waiting for GPS. Nothing when the post is stale: a chip
-     * has no room to say "last known", so it must not show the post at all.
-     * Nothing when it would not fit: half a reference is worse than none.
-     */
-    private fun chipText(snapshot: Snapshot?): String? {
-        if (snapshot == null || snapshot.stale) return null
-        val text = snapshot.shortText()
-        return if (text.isEmpty() || text.length > MAX_CHIP_CHARACTERS) null else text
     }
 
     /** Opens the app (its launcher screen). Used by the notification and by the widget. */

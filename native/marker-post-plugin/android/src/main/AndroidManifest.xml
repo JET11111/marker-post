@@ -36,13 +36,18 @@
             android:foregroundServiceType="location" />
 
         <!-- The home screen widget. Not exported: the system can still deliver
-             widget updates to it, other apps cannot send it anything. -->
+             widget updates to it, other apps cannot send it anything.
+             It is also told when the phone's clock or time zone is changed,
+             because the time it shows gains its date once that time is not
+             today's (the widget is then drawn again, nothing else). -->
         <receiver
             android:name="io.github.jet11111.markerpost.nativecore.MarkerPostWidgetProvider"
             android:exported="false"
             android:label="@string/markerpost_widget_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

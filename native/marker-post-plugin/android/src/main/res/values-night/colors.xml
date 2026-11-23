@@ -1,26 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Night colours: the same values as the page (styles.css, dark theme).
-  Only the colours that change at night are listed; the rest come from
-  values/colors.xml.
+  Night colours: the app's navy, the same values as the page (styles.css,
+  dark theme), not black and grey. Only the colours that change at night are
+  listed; the rest come from values/colors.xml.
 -->
 <resources>
 
-    <color name="markerpost_webview_background">#000000</color>
+    <!-- The page's "bg". -->
+    <color name="markerpost_webview_background">#0A0F1A</color>
 
-    <color name="markerpost_surface">#1C1C1E</color>
-    <color name="markerpost_text">#EBEBF0</color>
-    <color name="markerpost_text_secondary">#A1A1AA</color>
+    <!-- "surface", "text" and "text-2". -->
+    <color name="markerpost_surface">#121B2E</color>
+    <color name="markerpost_text">#F3F6FB</color>
+    <color name="markerpost_text_secondary">#8595AC</color>
 
-    <color name="markerpost_neutral">#2C2C2E</color>
-    <color name="markerpost_on_neutral">#EBEBF0</color>
+    <!-- "fill", with the ordinary text colour on it. -->
+    <color name="markerpost_neutral">#1B2740</color>
+    <color name="markerpost_on_neutral">#F3F6FB</color>
 
     <!-- A slightly lighter amber on dark surfaces; the outlined chip's letter can use it as it is. -->
     <color name="markerpost_amber">#FFC23D</color>
     <color name="markerpost_amber_letter">#FFC23D</color>
 
-    <color name="markerpost_neutral_dim">#8C2C2C2E</color>
-    <color name="markerpost_on_neutral_dim">#8CEBEBF0</color>
+    <!-- The same colours at 55% opacity (the leading 8C), for a stale post. -->
+    <color name="markerpost_neutral_dim">#8C1B2740</color>
+    <color name="markerpost_on_neutral_dim">#8CF3F6FB</color>
     <color name="markerpost_amber_dim">#8CFFC23D</color>
     <color name="markerpost_amber_letter_dim">#8CFFC23D</color>
 

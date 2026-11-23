@@ -100,6 +100,77 @@ class PostLookupTest {
         )
     }
 
+    /**
+     * The sum inside the distance must be built in the web app's order
+     * (docs/native-apps.md, section 3): each square first, then the two
+     * cosines multiplied together, then that product times the second square.
+     *
+     * Built in any other order the distance comes out a hair different. That
+     * is far inside the tolerance of the test above, so that test cannot see
+     * it; but it is no longer the web app's own sum, and it is enough to
+     * break a tie between two posts the other way. So this test compares
+     * exact values, against the same sum written out here in the right order.
+     */
+    @Test
+    fun theDistanceIsBuiltInTheWebAppsOrder() {
+        val posts = resource("posts.tsv").use { PostLookup.parse(it) }
+        val problems = ArrayList<String>()
+        var checked = 0
+        // How many of these distances another order would change. If it were
+        // none, this test could not tell the orders apart and would prove nothing.
+        var orderMatters = 0
+        val fixtureLines = lines("nearest-fixtures.tsv")
+        for (n in fixtureLines.indices) {
+            val line = fixtureLines[n]
+            if (line.isEmpty() || line.startsWith("#")) continue
+            val f = line.split('\t')
+            val lat = f[0].toDouble()
+            val lng = f[1].toDouble()
+            val index = f[5].toInt()
+            if (index < 0 || index >= posts.size) continue
+            val post = posts[index]
+
+            val s1 = StrictMath.sin(PostLookup.toRad(post.lat - lat) / 2.0)
+            val s2 = StrictMath.sin(PostLookup.toRad(post.lng - lng) / 2.0)
+            val cosines = StrictMath.cos(PostLookup.toRad(lat)) * StrictMath.cos(PostLookup.toRad(post.lat))
+            val inOrder = (s1 * s1) + cosines * (s2 * s2)
+            val leftToRight = s1 * s1 + cosines * s2 * s2
+            val expected = 2.0 * PostLookup.EARTH_RADIUS_M * StrictMath.asin(StrictMath.sqrt(inOrder))
+            val otherwise = 2.0 * PostLookup.EARTH_RADIUS_M * StrictMath.asin(StrictMath.sqrt(leftToRight))
+
+            val got = PostLookup.haversine(lat, lng, post.lat, post.lng)
+            checked++
+            if (got != expected) {
+                problems.add("line " + (n + 1) + ": " + got + " m, expected exactly " + expected + " m")
+            }
+            if (otherwise != expected) orderMatters++
+        }
+
+        assertTrue("nearest-fixtures.tsv looks cut short: " + checked + " fixtures", checked > 1000)
+        assertTrue("no fixture tells one order from another, so this test proves nothing", orderMatters > 0)
+        assertTrue(
+            problems.size.toString() + " distance(s) not built in the web app's order:\n" +
+                problems.take(25).joinToString("\n"),
+            problems.isEmpty()
+        )
+    }
+
+    /**
+     * A long way from every recorded post, the tracker puts its own line under
+     * the post, and tells it from a post's own line by its words alone
+     * (TrackingRules.isFarContext). So no recorded post may carry such a line.
+     */
+    @Test
+    fun noRecordedPostHasALineThatSaysItIsFarAway() {
+        val posts = resource("posts.tsv").use { PostLookup.parse(it) }
+        val taken = posts.filter { TrackingRules.isFarContext(it.context) }
+        assertTrue(
+            taken.size.toString() + " recorded post(s) have a line the tracker would take for its own, the first: " +
+                taken.take(1).joinToString { it.road + " " + it.ref + " \"" + it.context + "\"" },
+            taken.isEmpty()
+        )
+    }
+
     @Test
     fun theTwoFilesComeFromTheSameBuild() {
         // "# markerpost-posts <tab> v1 <tab> count <tab> digest" and the same shape for the fixtures.

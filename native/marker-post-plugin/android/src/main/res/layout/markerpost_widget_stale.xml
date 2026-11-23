@@ -4,7 +4,7 @@
 
   The same layout as markerpost_widget.xml, with the same ids, so that the
   post cannot be read as current: the badge and the chip fade to 55%, the
-  chainage and the junction line drop to the secondary text colour, and the
+  chainage and the line under it drop to the secondary text colour, and the
   time line ("No GPS since 14:32") becomes the strongest line.
 
   It is a second layout, and not colours changed from code, because a colour
@@ -19,138 +19,153 @@
     android:orientation="vertical"
     android:padding="12dp">
 
-    <TextView
-        android:id="@+id/markerpost_badge_motorway"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/markerpost_badge_motorway_dim"
-        android:ellipsize="end"
-        android:includeFontPadding="false"
-        android:maxLines="1"
-        android:paddingStart="7dp"
-        android:paddingTop="3dp"
-        android:paddingEnd="7dp"
-        android:paddingBottom="3dp"
-        android:textColor="@color/markerpost_on_motorway_dim"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
-
-    <TextView
-        android:id="@+id/markerpost_badge_a_road"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/markerpost_badge_a_road_dim"
-        android:ellipsize="end"
-        android:includeFontPadding="false"
-        android:maxLines="1"
-        android:paddingStart="7dp"
-        android:paddingTop="3dp"
-        android:paddingEnd="7dp"
-        android:paddingBottom="3dp"
-        android:textColor="@color/markerpost_on_a_road_dim"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
-
-    <TextView
-        android:id="@+id/markerpost_badge_other"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/markerpost_badge_other_dim"
-        android:ellipsize="end"
-        android:includeFontPadding="false"
-        android:maxLines="1"
-        android:paddingStart="7dp"
-        android:paddingTop="3dp"
-        android:paddingEnd="7dp"
-        android:paddingBottom="3dp"
-        android:textColor="@color/markerpost_on_neutral_dim"
-        android:textSize="15sp"
-        android:textStyle="bold"
-        android:visibility="gone" />
-
+    <!-- Everything except the time: it takes the height that is left once the
+         time line below has had all it needs (see markerpost_widget.xml). -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:orientation="vertical">
 
         <TextView
-            android:id="@+id/markerpost_km"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:id="@+id/markerpost_badge_motorway"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/markerpost_badge_motorway_dim"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:paddingStart="7dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="7dp"
+            android:paddingBottom="3dp"
+            android:textColor="@color/markerpost_on_motorway_dim"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/markerpost_badge_a_road"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/markerpost_badge_a_road_dim"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:paddingStart="7dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="7dp"
+            android:paddingBottom="3dp"
+            android:textColor="@color/markerpost_on_a_road_dim"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/markerpost_badge_other"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/markerpost_badge_other_dim"
+            android:ellipsize="end"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:paddingStart="7dp"
+            android:paddingTop="3dp"
+            android:paddingEnd="7dp"
+            android:paddingBottom="3dp"
+            android:textColor="@color/markerpost_on_neutral_dim"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:autoSizeMaxTextSize="64sp"
-            android:autoSizeMinTextSize="16sp"
-            android:autoSizeStepGranularity="1sp"
-            android:autoSizeTextType="uniform"
-            android:fontFamily="sans-serif-black"
-            android:fontFeatureSettings="tnum"
-            android:gravity="start|center_vertical"
-            android:includeFontPadding="false"
-            android:letterSpacing="-0.03"
-            android:maxLines="1"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/markerpost_km"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:autoSizeMaxTextSize="64sp"
+                android:autoSizeMinTextSize="16sp"
+                android:autoSizeStepGranularity="1sp"
+                android:autoSizeTextType="uniform"
+                android:fontFamily="sans-serif-black"
+                android:fontFeatureSettings="tnum"
+                android:gravity="start|center_vertical"
+                android:includeFontPadding="false"
+                android:letterSpacing="-0.03"
+                android:maxLines="1"
+                android:textColor="@color/markerpost_text_secondary"
+                android:textSize="28sp" />
+
+            <!-- The room above and below the letter is minHeight, not padding,
+                 so a chip squeezed on a short widget still shows its letter
+                 whole (see markerpost_widget.xml). -->
+            <TextView
+                android:id="@+id/markerpost_chip_filled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/markerpost_chip_filled_dim"
+                android:fontFamily="sans-serif-black"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:minWidth="34dp"
+                android:minHeight="36sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:textColor="@color/markerpost_on_amber_dim"
+                android:textSize="22sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/markerpost_chip_outline"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/markerpost_chip_outline_dim"
+                android:fontFamily="sans-serif-black"
+                android:gravity="center"
+                android:includeFontPadding="false"
+                android:maxLines="1"
+                android:minWidth="34dp"
+                android:minHeight="36sp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:textColor="@color/markerpost_amber_letter_dim"
+                android:textSize="22sp"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <!-- The line under the post: two lines, cut at the end if that is not
+             enough; one line on a short widget (see markerpost_widget.xml). -->
+        <TextView
+            android:id="@+id/markerpost_context"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="2"
             android:textColor="@color/markerpost_text_secondary"
-            android:textSize="28sp" />
-
-        <TextView
-            android:id="@+id/markerpost_chip_filled"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/markerpost_chip_filled_dim"
-            android:fontFamily="sans-serif-black"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:minWidth="34dp"
-            android:paddingStart="8dp"
-            android:paddingTop="5dp"
-            android:paddingEnd="8dp"
-            android:paddingBottom="5dp"
-            android:textColor="@color/markerpost_on_amber_dim"
-            android:textSize="22sp"
-            android:visibility="gone" />
-
-        <TextView
-            android:id="@+id/markerpost_chip_outline"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:background="@drawable/markerpost_chip_outline_dim"
-            android:fontFamily="sans-serif-black"
-            android:gravity="center"
-            android:includeFontPadding="false"
-            android:maxLines="1"
-            android:minWidth="34dp"
-            android:paddingStart="8dp"
-            android:paddingTop="5dp"
-            android:paddingEnd="8dp"
-            android:paddingBottom="5dp"
-            android:textColor="@color/markerpost_amber_letter_dim"
-            android:textSize="22sp"
-            android:visibility="gone" />
+            android:textSize="14sp"
+            android:textStyle="bold" />
 
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/markerpost_context"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textColor="@color/markerpost_text_secondary"
-        android:textSize="14sp"
-        android:textStyle="bold" />
-
-    <!-- "No GPS since 14:32": the one line here in the full text colour. -->
+    <!-- "No GPS since 14:32": the one line here in the full text colour.
+         Three lines allowed, so the clock at the end of "No GPS since
+         31 Dec 2026, 23:10" is never the part cut. -->
     <TextView
         android:id="@+id/markerpost_time"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:maxLines="2"
+        android:maxLines="3"
         android:textColor="@color/markerpost_text"
         android:textSize="13sp"
         android:textStyle="bold" />

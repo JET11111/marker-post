@@ -29,7 +29,7 @@ data class Post(
     val letter: String,
     /** The recorded reference, verbatim: "P17/4A". */
     val ref: String,
-    /** The line under the post: "J4 – J5", "At J5", "A303 jct · 349 m", or empty. */
+    /** The line under the post: "J4 – J5", "Within J5", "A303 jct · 349 m from post", "Link M27B/M3B · survey date unknown", or empty. */
     val context: String
 )
 

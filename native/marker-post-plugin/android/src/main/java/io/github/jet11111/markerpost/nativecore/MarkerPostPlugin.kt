@@ -89,9 +89,10 @@ class MarkerPostPlugin : Plugin() {
         try {
             applyWebViewBackground()
             TrackingState.addListener(stateListener)
-            // If the app was removed from memory while tracking, the stored
-            // snapshot still says "tracking". Reading it corrects that, and the
-            // widget is redrawn to match. Posted, so it does not hold up the launch.
+            // The time on the widget gains its date at midnight, by a redraw
+            // the widget books for itself. A forced stop loses that booking,
+            // so the widget is also drawn whenever the app is opened.
+            // Posted, so it does not hold up the launch.
             val appContext = context.applicationContext
             mainHandler.post { MarkerPostWidgetProvider.update(appContext) }
         } catch (e: Exception) {
@@ -115,7 +116,7 @@ class MarkerPostPlugin : Plugin() {
 
     /**
      * Paints the web view itself in the page's background colour (light by
-     * day, black at night), so nothing flashes white while the page loads.
+     * day, navy at night), so nothing flashes white while the page loads.
      */
     private fun applyWebViewBackground() {
         try {
@@ -390,9 +391,15 @@ class MarkerPostPlugin : Plugin() {
         return LocationManagerCompat.isLocationEnabled(manager)
     }
 
+    /**
+     * False when the tracking notification cannot be seen: notifications are
+     * off for the whole app, or the user has switched off its "Live tracking"
+     * category alone.
+     */
     private fun notificationsOn(): Boolean {
         return try {
-            NotificationManagerCompat.from(context).areNotificationsEnabled()
+            NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+                !TrackingNotification.channelSwitchedOff(context)
         } catch (e: Exception) {
             false
         }

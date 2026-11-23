@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug builds only. Everything under src/debug is left out of the release
+  build altogether, so nothing here can be reached in the app that is shipped.
+
+  One screen: the home screen widget in each of its states, for the automated
+  check to take a picture of (nothing can place a real widget on a home
+  screen from the command line). It has no entry in the app list. It is
+  exported only so that a test can open it by name:
+
+    adb shell am start -W -n io.github.jet11111.markerpost/io.github.jet11111.markerpost.nativecore.WidgetPreviewActivity
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <activity
+            android:name="io.github.jet11111.markerpost.nativecore.WidgetPreviewActivity"
+            android:exported="true"
+            android:label="Marker Post widget preview" />
+
+    </application>
+
+</manifest>

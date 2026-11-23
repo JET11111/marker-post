@@ -77,15 +77,14 @@ class TrackingService : Service() {
     /** The newest snapshot, shown or not. Null until the first fix. */
     private var current: Snapshot? = null
 
-    /** The snapshot on the notification and the widget right now. */
+    /** The snapshot on the notification and the widget right now, when it was drawn, and the time written on it. */
     private var shown: Snapshot? = null
     private var shownAt = 0L
+    private var shownClock = ""
 
-    /** When the last fix arrived (SystemClock.elapsedRealtime) and the speed it reported, if any. */
+    /** When the last fix was taken (on the clock of SystemClock.elapsedRealtime) and the speed it reported, if any. */
     private var lastFixAt = 0L
     private var lastSpeed: Double? = null
-
-    private var widgetCheckBookedAt = -WIDGET_CHECK_REBOOK_MS
 
     private val staleTimer = object : Runnable {
         override fun run() {
@@ -176,8 +175,8 @@ class TrackingService : Service() {
         val wasRunning = running
         running = false
         if (wasRunning) {
-            // The final snapshot: the same post, no longer marked as tracked, so
-            // the widget stops saying "Live" and says when it was last updated.
+            // The final snapshot: the newest post, no longer marked as tracked.
+            // The widget keeps it, with the time of its position.
             val last = current
             if (last != null) SnapshotStore.write(this, last.copy(tracking = false))
         }
@@ -187,7 +186,6 @@ class TrackingService : Service() {
             // The notification goes with the service in any case.
         }
         if (wasRunning) TrackingState.markStopped(stopReason)
-        MarkerPostWidgetProvider.cancelCheck(this)
         MarkerPostWidgetProvider.update(this)
 
         if (restartWanted) {
@@ -363,10 +361,30 @@ class TrackingService : Service() {
 
     private fun onFix(location: Location) {
         if (!running || destroyed) return
-        if (isLeftOver(location)) return
         val lat = location.latitude
         val lng = location.longitude
         if (lat.isNaN() || lng.isNaN()) return
+
+        // The time of a fix is the time the position was true, never the time
+        // it arrived: "Updated 14:32" and the stale rule both count from it.
+        // TrackingRules.fixAgeMs works out how old the fix is, and gives no
+        // age for a position the phone had kept from earlier: that one says
+        // where the phone was, not where it is, and is not used at all.
+        val now = SystemClock.elapsedRealtime()
+        val ageMs = TrackingRules.fixAgeMs(
+            now - location.elapsedRealtimeNanos / 1_000_000L,
+            System.currentTimeMillis() - location.time
+        ) ?: return
+        val fixAt = now - ageMs
+        // Never let an older position replace a newer one.
+        if (fixAt < lastFixAt) return
+
+        // A position too rough to tell one post from the next is not a
+        // position (without satellites the phone can still answer from Wi-Fi
+        // and phone masts). It is ignored altogether, so the last good fix
+        // goes stale in the usual way and the surfaces say "No GPS since 14:32".
+        val accuracy: Double? = if (location.hasAccuracy()) location.accuracy.toDouble() else null
+        if (!TrackingRules.accuracyIsUsable(accuracy)) return
 
         // 1. Direction of travel and speed, or "none". Only what the position
         //    itself reports: never the compass, which says where the phone points.
@@ -380,21 +398,16 @@ class TrackingService : Service() {
         if (headingWasPreferred && !useHeading) carriageway.reset()
         headingWasPreferred = useHeading
 
-        // 2. The nearest post.
-        val nearest = PostLookup.findNearest(posts, lat, lng, heading, speed, useHeading)
-        if (nearest.index < 0) return
-        val post = posts[nearest.index]
-
-        // 3. Is the carriageway known, or only guessed from position?
-        val confirmed = carriageway.confirm(post, nearest.headingUsed, lat, lng)
-
-        // 4. The snapshot. Its time is when the fix arrived, by this phone's own
-        //    clock, as in the web app: "updated 14:32" is read against the
-        //    phone's clock, and the receiver's own clock can disagree with it.
-        val now = SystemClock.elapsedRealtime()
-        lastFixAt = now
+        // 2 to 4. The nearest post, whether its carriageway is known or only
+        //    guessed from position, and the snapshot (Snapshot.forFix; a long
+        //    way from every recorded post the snapshot says so). The time on it
+        //    is the fix's own, read against this phone's clock: that is the
+        //    clock "14:32" is compared with.
+        val snapshot = Snapshot.forFix(
+            posts, lat, lng, heading, speed, useHeading, System.currentTimeMillis() - ageMs, carriageway
+        ) ?: return
+        lastFixAt = fixAt
         lastSpeed = speed
-        val snapshot = Snapshot.live(post, confirmed, System.currentTimeMillis())
         current = snapshot
 
         // 5. Show it when something visible changed, but not more than once a
@@ -406,7 +419,7 @@ class TrackingService : Service() {
         if (previous == null) {
             due = true
         } else if (!snapshot.showsSameAs(previous)) {
-            due = sinceShown >= MIN_SHOW_INTERVAL_MS
+            due = sinceShown >= changeInterval(snapshot, previous)
         } else {
             due = sinceShown >= HEARTBEAT_MS
         }
@@ -414,19 +427,15 @@ class TrackingService : Service() {
     }
 
     /**
-     * True for a position the phone had kept from earlier and hands over when
-     * updates are first asked for. It says where the phone was, not where it
-     * is, so it must not be shown as current: it is not used at all.
-     *
-     * A fix carries two times, one by the phone's clock and one by its uptime.
-     * Either can be wrong on some phones, so a fix is only set aside when both
-     * agree that it is old. A fresh fix is never thrown away on the word of one.
+     * How soon after the last redraw a change may be shown: a second. The
+     * one exception is how far away a far post is said to be. Away from the
+     * recorded roads that figure changes with every fix, and redrawing the
+     * notification and the widget every second for it would wear the battery
+     * for nothing, so it is redrawn every five seconds (the same pace as the
+     * web app and the iPhone).
      */
-    private fun isLeftOver(location: Location): Boolean {
-        val ageByUptime = (SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
-        val ageByClock = System.currentTimeMillis() - location.time
-        return ageByUptime > MAX_FIX_AGE_MS && ageByClock > MAX_FIX_AGE_MS
-    }
+    private fun changeInterval(newest: Snapshot, previous: Snapshot): Long =
+        if (newest.differsOnlyInFarDistance(previous)) FAR_DISTANCE_INTERVAL_MS else MIN_SHOW_INTERVAL_MS
 
     /** A bearing is a heading only when it is a real direction. 0.0 is one (due north). */
     private fun usableBearing(bearing: Float): Double? =
@@ -453,31 +462,27 @@ class TrackingService : Service() {
             show(lastKnown)
             return
         }
-        // A change that came within a second of the last redraw was held back.
-        // If no later fix has carried it through, show it now.
-        val previous = shown
-        if (previous != null && !latest.showsSameAs(previous) && now - shownAt >= MIN_SHOW_INTERVAL_MS) {
-            show(latest)
-        }
+        val previous = shown ?: return
+        val sinceShown = now - shownAt
+        // A change that came too soon after the last redraw was held back. If
+        // no later fix has carried it through, show it now.
+        val heldBack = !latest.showsSameAs(previous) && sinceShown >= changeInterval(latest, previous)
+        // The same goes for a time that no longer reads as it was written:
+        // left overnight, "No GPS since 23:58" must gain its date at midnight.
+        val clockMoved = sinceShown >= MIN_SHOW_INTERVAL_MS && SurfaceText.clock(previous.fixTime) != shownClock
+        if (heldBack || clockMoved) show(latest)
     }
 
     // ------------------------------------------------------------- showing
 
     /** Puts a snapshot on every surface: the shared store, the notification and the widget. */
     private fun show(snapshot: Snapshot) {
-        val now = SystemClock.elapsedRealtime()
         shown = snapshot
-        shownAt = now
+        shownAt = SystemClock.elapsedRealtime()
+        shownClock = SurfaceText.clock(snapshot.fixTime)
         SnapshotStore.write(this, snapshot)
         postNotification(snapshot)
-        val onHomeScreen = MarkerPostWidgetProvider.update(this)
-        // While the widget says "Live", keep a check booked a few minutes
-        // ahead (see MarkerPostWidgetProvider.bookCheck). Re-booking on every
-        // redraw would be wasteful; every 30 seconds keeps it in the future.
-        if (onHomeScreen && !snapshot.stale && now - widgetCheckBookedAt >= WIDGET_CHECK_REBOOK_MS) {
-            MarkerPostWidgetProvider.bookCheck(this)
-            widgetCheckBookedAt = now
-        }
+        MarkerPostWidgetProvider.update(this)
     }
 
     private fun postNotification(snapshot: Snapshot) {
@@ -519,13 +524,10 @@ class TrackingService : Service() {
         const val ACTION_DISMISSED = "io.github.jet11111.markerpost.nativecore.action.DISMISSED"
 
         private const val FIX_INTERVAL_MS = 1_000L
-
-        /** A fix older than this when it arrives is a left-over, not a position. */
-        private const val MAX_FIX_AGE_MS = 10_000L
         private const val STALE_CHECK_MS = 5_000L
         private const val MIN_SHOW_INTERVAL_MS = 1_000L
+        private const val FAR_DISTANCE_INTERVAL_MS = 5_000L
         private const val HEARTBEAT_MS = 30_000L
-        private const val WIDGET_CHECK_REBOOK_MS = 30_000L
 
         /**
          * Starts tracking. Only call while the app is on screen: Android throws

@@ -3,10 +3,13 @@
   How the launcher should treat the widget: about two cells by two, resizable
   both ways, home screen only.
 
-  updatePeriodMillis is 0: the widget is never refreshed on a timer. It is
-  redrawn by the tracking service on every visible change and by the app
-  whenever it hands over the post on screen, and it always states the time of
-  its position.
+  updatePeriodMillis is 0: the launcher never refreshes the widget on a timer
+  (that would wake the phone every half hour for nothing). It is redrawn by
+  the tracking service on every visible change, by the app whenever it hands
+  over the post on screen, and when the launcher gives it another size; and
+  it always states the time of its position. The one redraw by the clock is
+  booked by the widget itself, for the midnight after which that time needs
+  its date (MarkerPostWidgetProvider).
 
   description, previewLayout, targetCellWidth and targetCellHeight are read
   from Android 12; older versions ignore them and use minWidth and minHeight.

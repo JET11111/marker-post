@@ -2,7 +2,7 @@
 <resources>
 
     <!-- The app is one full-screen web view. The window behind it is painted in
-         the page's own background colour (light by day, black at night), so
+         the page's own background colour (light by day, the app's navy at night), so
          nothing flashes white while the page loads. -->
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <item name="colorPrimary">@color/mp_accent</item>
