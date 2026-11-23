@@ -116,13 +116,21 @@ try {
   adb('shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`);
 
   // A debug build lets a tool attach to the app's web page, exactly as Chrome's own inspector does.
+  // Every app with a web view has a debugging socket of its own, named after
+  // its process. Another app's can come first in the list (on a slow start the
+  // phone's own apps are still opening theirs), so the app's own is tried
+  // first, by its process id, and then any other.
   page = await until('the app to open its page', async () => {
-    const socket = /@(webview_devtools_remote_\d+)/.exec(quiet('shell', 'cat', '/proc/net/unix'))?.[1];
-    if (!socket) return null;
-    adb('forward', 'tcp:9339', `localabstract:${socket}`);
-    const targets = await fetch('http://127.0.0.1:9339/json').then((r) => r.json()).catch(() => []);
-    const target = targets.find((t) => t.type === 'page' && /localhost/.test(t.url));
-    return target ? connect(target.webSocketDebuggerUrl) : null;
+    const pid = quiet('shell', 'pidof', APP_ID).trim().split(/\s+/)[0];
+    const found = [...quiet('shell', 'cat', '/proc/net/unix').matchAll(/@(webview_devtools_remote_(\d+))/g)];
+    const sockets = [...new Set([...found.filter((m) => m[2] === pid), ...found].map((m) => m[1]))];
+    for (const socket of sockets) {
+      adb('forward', 'tcp:9339', `localabstract:${socket}`);
+      const targets = await fetch('http://127.0.0.1:9339/json').then((r) => r.json()).catch(() => []);
+      const target = targets.find((t) => t.type === 'page' && /localhost/.test(t.url));
+      if (target) return connect(target.webSocketDebuggerUrl);
+    }
+    return null;
   }, 90000);
   await page.send('Runtime.enable');
   const read = (expression) => page.eval(expression);
