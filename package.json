@@ -21,6 +21,7 @@
     "android:release": "npm run cap:sync:android && node scripts/gradle.mjs assembleRelease",
     "android:test": "node scripts/build-native-data.mjs && node scripts/gradle.mjs testDebugUnitTest",
     "screenshots": "node scripts/screenshots.mjs",
+    "smoke:web": "node scripts/smoke-web.mjs",
     "basemap": "node scripts/fetch-basemap.mjs",
     "vendor": "node scripts/vendor.mjs"
   },
