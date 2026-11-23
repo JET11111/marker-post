@@ -23,6 +23,19 @@ function plugin(name) {
   return registry.get(name);
 }
 
+/**
+ * Call a plugin where a failure does not matter (a tap, a listener, the
+ * colour of the bars). A plugin that is missing does not throw: its call
+ * returns a promise that rejects. Both kinds of failure end here, so neither
+ * stops the app nor fills the problem log.
+ */
+function quietly(call) {
+  try {
+    const result = call();
+    if (result && typeof result.then === 'function') result.then(null, () => {});
+  } catch { /* the plugin is missing or not ready */ }
+}
+
 const finite = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const nonNegative = (v) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null);
 
@@ -51,8 +64,10 @@ export function toFix(coords, timestamp, native = isNative) {
 
 /**
  * Desk testing in a browser only: ?sim=lat,lng[,heading[,speed]] feeds one
- * fixed position instead of the GPS. The fix is flagged so the screen can say
- * "Simulated position" and never be mistaken for a real one.
+ * fixed position instead of the GPS. Every position made here is flagged
+ * `simulated: true`, so the screen can say "Simulated position" and it is
+ * never mistaken for a real one. This is the only place a made-up position
+ * comes from; the phone apps have none.
  */
 function simulatedFix() {
   if (isNative || typeof location === 'undefined') return null;
@@ -64,6 +79,7 @@ function simulatedFix() {
     lat, lng, accuracy: 5,
     heading: Number.isFinite(heading) ? heading : null,
     speed: Number.isFinite(speed) ? speed : null,
+    timestamp: Date.now(),
     simulated: true,
   };
 }
@@ -72,9 +88,18 @@ const WATCH_OPTIONS = { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 
 
 /**
  * Start a continuous high-accuracy position watch.
- * onFix(fix) for every fix; onError({ code, message }) with code 1 when
- * permission is refused, 2 for anything else. Returns a function that stops
- * the watch.
+ * onFix(fix) for every fix. onError({ code, message, reason? }): code 0 when
+ * the device has no geolocation, 1 when permission is refused, 2 for anything
+ * else; reason is "location-off" when location is switched off for the whole
+ * phone (native apps). Returns a function that stops the watch.
+ *
+ * In the native apps a refusal, or location being switched off, is reported
+ * once and the watch then keeps looking: it starts by itself when the user
+ * has put it right, with no need to close the app. When it does, onError is
+ * called once more, with code 2 and reason "looking". That one is not a
+ * failure: it says the last report no longer holds and a position is being
+ * looked for again, so the app can stop saying "blocked" before the first
+ * fix arrives.
  */
 export function watchPosition(onFix, onError) {
   if (isNative) return watchNative(onFix, onError);
@@ -97,59 +122,144 @@ export function watchPosition(onFix, onError) {
   return () => navigator.geolocation.clearWatch(id);
 }
 
+/**
+ * What a failure reported by the Geolocation plugin means for the user. The
+ * plugin uses the same codes on iOS and Android.
+ *   "refused"  the app is not allowed to use location (denied or restricted)
+ *   "off"      location is switched off for the whole phone
+ *   null       anything else: a passing problem, worth trying again
+ */
+export function geoBlock(err) {
+  const code = String(err?.code || '');
+  if (code === 'OS-PLUG-GLOC-0003' || code === 'OS-PLUG-GLOC-0008') return 'refused';
+  if (code === 'OS-PLUG-GLOC-0007') return 'off';
+  return null;
+}
+
+/** How soon to try again after a problem. */
+const RETRY_MS = 3000;
+
 function watchNative(onFix, onError) {
   const Geo = plugin('Geolocation');
-  let stopped = false, watchId = null, retry = null;
+  let stopped = false;
+  let serial = 0, current = 0, watchId = null; // the watch that is running or starting, if any
+  let checking = false, again = null;
+  // The user is asked once at most, and only while the app has never been
+  // seen to hold the permission. The system's own prompt sends the app to the
+  // back and brings it forward again, so asking on every return would put a
+  // refused prompt straight back up. Permission that was given and then lost
+  // was taken away in Settings (or, after "Allow Once" on an iPhone, is asked
+  // for again by the plugin itself), so it is not asked for a second time.
+  let mayAsk = true;
+  // Why there is no watch: null (there is one, or one is on its way),
+  // "refused", "off" (see geoBlock) or "failed" (the check itself went wrong).
+  let blocked = null;
+
+  const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
   const clear = () => {
-    if (watchId != null) { Geo.clearWatch({ id: watchId }).catch(() => {}); watchId = null; }
+    current = 0;
+    if (watchId != null) { const id = watchId; watchId = null; quietly(() => Geo.clearWatch({ id })); }
   };
-  // The plugin ends a watch when it reports certain errors (a first fix that
-  // takes too long, for example starting in a garage). Start it again shortly
-  // afterwards so the readout recovers by itself.
-  const restartSoon = () => {
-    if (stopped || retry) return;
+  const lookSoon = () => {
+    if (!stopped && !again) again = setTimeout(() => { again = null; look(); }, RETRY_MS);
+  };
+
+  // There can be no position until something changes on the phone. Say why,
+  // once, and keep looking: the user may put it right in Settings and come
+  // back, and nothing restarts the app when they do.
+  const block = (why, err) => {
     clear();
-    retry = setTimeout(() => { retry = null; start(); }, 3000);
+    if (blocked !== why) {
+      blocked = why;
+      if (why === 'refused') onError({ code: 1, message: 'Location permission refused' });
+      else if (why === 'off') onError({ code: 2, reason: 'location-off', message: String(err?.message || 'Location is switched off') });
+      else onError({ code: 2, message: String(err?.message || err || 'Location could not be checked') });
+    }
+    lookSoon();
   };
+
   async function start() {
-    if (stopped) return;
+    const mine = ++serial;
+    current = mine;
+    const wanted = () => !stopped && current === mine;
     try {
       // `interval` defaults to `timeout` on Android, so it must be set or
       // fixes would arrive only once a minute.
-      watchId = await Geo.watchPosition(
+      const id = await Geo.watchPosition(
         { ...WATCH_OPTIONS, timeout: 60000, interval: 1000, minimumUpdateInterval: 1000 },
         (pos, err) => {
-          if (stopped) return;
+          if (!wanted()) return;
           if (err || !pos) {
+            const why = geoBlock(err);
+            if (why) { block(why, err); return; }
+            // The plugin ends a watch when it reports certain errors (a first
+            // fix that takes too long, for example starting in a garage).
+            // Start again shortly so the readout recovers by itself.
             onError({ code: 2, message: String(err?.message || err || 'No position') });
-            restartSoon();
+            clear();
+            lookSoon();
             return;
           }
           onFix(toFix(pos.coords, pos.timestamp, true));
         },
       );
-      if (stopped) clear();
+      if (wanted()) watchId = id;
+      else quietly(() => Geo.clearWatch({ id })); // stopped or replaced while it was starting
     } catch (e) {
+      if (!wanted()) return;
       onError({ code: 2, message: String(e?.message || e) });
-      restartSoon();
+      clear();
+      lookSoon();
     }
   }
-  (async () => {
+
+  // Make sure location may be used, then start the watch. Apart from the one
+  // question (see mayAsk) this only looks.
+  async function look(now = false) {
+    if (stopped || checking || current) return;
+    clearTimeout(again); again = null;
+    // A timed look waits while the app is out of sight: nothing is asked then.
+    if (!now && hidden()) { lookSoon(); return; }
+    checking = true;
+    let why = null, failure = null;
     try {
+      // Both calls reject when location is switched off for the whole phone.
       let perm = await Geo.checkPermissions();
-      if (perm.location !== 'granted') perm = await Geo.requestPermissions({ permissions: ['location'] });
-      if (perm.location !== 'granted') { onError({ code: 1, message: 'Location permission refused' }); return; }
+      if (perm.location !== 'granted' && mayAsk) {
+        mayAsk = false;
+        perm = await Geo.requestPermissions({ permissions: ['location'] });
+      }
+      if (perm.location === 'granted') mayAsk = false;
+      else why = 'refused';
     } catch (e) {
-      // Thrown when location services are switched off for the whole device.
-      onError({ code: 2, message: String(e?.message || e) });
-      return;
+      failure = e;
+      why = geoBlock(e) || 'failed';
     }
+    checking = false;
+    if (stopped) return;
+    if (why) { block(why, failure); return; }
+    // It was blocked and no longer is. Say so now: the first fix can be most
+    // of a minute away, and until it came the app would go on saying
+    // "blocked" or "switched off", which has stopped being true.
+    if (blocked) onError({ code: 2, reason: 'looking', message: 'Location is available again' });
+    blocked = null;
     start();
-  })();
+  }
+
+  // Coming back to the app is the moment the user may have put it right, and
+  // the moment to restart a watch that failed while the app was away: look
+  // at once, without waiting for the timer.
+  let listening = null;
+  quietly(() => (listening = plugin('App').addListener('appStateChange', (state) => {
+    if (state?.isActive && !current) look(true);
+  })));
+
+  look(true);
   return () => {
     stopped = true;
-    clearTimeout(retry);
+    clearTimeout(again);
     clear();
+    quietly(() => listening && listening.then((l) => l.remove()));
   };
 }
 
@@ -160,6 +270,9 @@ export async function getCurrentPosition(options = { enableHighAccuracy: true, t
     const pos = await Geo.getCurrentPosition(options);
     return toFix(pos.coords, pos.timestamp, true);
   }
+  // Desk testing: the made-up position, never the real one mixed in with it.
+  const sim = simulatedFix();
+  if (sim) return sim;
   if (!('geolocation' in navigator)) throw new Error('No geolocation on this device');
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(
@@ -171,16 +284,16 @@ export async function getCurrentPosition(options = { enableHighAccuracy: true, t
 
 /** A short tap. kind: "light" | "selection" | "success" | "warning". Never throws. */
 export function haptic(kind = 'light') {
-  try {
-    if (isNative) {
-      const H = plugin('Haptics');
-      if (kind === 'selection') { H.selectionStart(); H.selectionChanged(); H.selectionEnd(); }
-      else if (kind === 'success') H.notification({ type: 'SUCCESS' });
-      else if (kind === 'warning') H.notification({ type: 'WARNING' });
-      else H.impact({ style: 'LIGHT' });
-    }
-    // The web app stays silent: vibration there is inconsistent and unrequested.
-  } catch { /* haptics are decoration */ }
+  // The web app stays silent: vibration there is inconsistent and unrequested.
+  if (!isNative) return;
+  // Haptics are decoration: a failure is ignored.
+  quietly(() => {
+    const H = plugin('Haptics');
+    if (kind === 'selection') return Promise.all([H.selectionStart(), H.selectionChanged(), H.selectionEnd()]);
+    if (kind === 'success') return H.notification({ type: 'SUCCESS' });
+    if (kind === 'warning') return H.notification({ type: 'WARNING' });
+    return H.impact({ style: 'LIGHT' });
+  });
 }
 
 // -------------------------------------------------------- keep screen awake
@@ -203,7 +316,7 @@ export async function keepAwake() {
 /** Call handler(isActive) when the app comes to the front or goes away. */
 export function onAppState(handler) {
   if (isNative) {
-    plugin('App').addListener('appStateChange', (state) => handler(Boolean(state?.isActive)));
+    quietly(() => plugin('App').addListener('appStateChange', (state) => handler(Boolean(state?.isActive))));
     return;
   }
   document.addEventListener('visibilitychange', () => handler(document.visibilityState === 'visible'));
@@ -227,10 +340,9 @@ export function onAppLink(handler) {
       handler(`${link.host}${link.pathname}`.replace(/^\/+|\/+$/g, '').toLowerCase());
     } catch { /* not a link we understand */ }
   };
-  try {
-    App.addListener('appUrlOpen', (event) => deliver(event?.url));
-    App.getLaunchUrl().then((launch) => { if (launch?.url) deliver(launch.url); }).catch(() => {});
-  } catch { /* App plugin missing: links simply open the app */ }
+  // If the App plugin is missing, links simply open the app.
+  quietly(() => App.addListener('appUrlOpen', (event) => deliver(event?.url)));
+  quietly(() => App.getLaunchUrl().then((launch) => { if (launch?.url) deliver(launch.url); }));
 }
 
 /**
@@ -241,11 +353,11 @@ export function onAppLink(handler) {
 export function onBackButton(handler) {
   if (platform !== 'android') return;
   const App = plugin('App');
-  App.addListener('backButton', () => {
+  quietly(() => App.addListener('backButton', () => {
     let handled = false;
     try { handled = Boolean(handler()); } catch { handled = false; }
-    if (!handled) App.minimizeApp().catch(() => {});
-  });
+    if (!handled) quietly(() => App.minimizeApp());
+  }));
 }
 
 // ------------------------------------------------------------ system chrome
@@ -253,7 +365,7 @@ export function onBackButton(handler) {
 /** Make status-bar and navigation-bar icons readable on the current theme. */
 export function setSystemBars(isDark) {
   if (!isNative) return;
-  try { plugin('SystemBars').setStyle({ style: isDark ? 'DARK' : 'LIGHT' }).catch(() => {}); } catch { /* optional */ }
+  quietly(() => plugin('SystemBars').setStyle({ style: isDark ? 'DARK' : 'LIGHT' }));
 }
 
 // ------------------------------------------------------------------ network
@@ -295,7 +407,7 @@ export async function getJson(url, { timeoutMs = 10000, cache } = {}) {
  */
 export function publishPost(snapshot) {
   if (!isNative) return;
-  try { plugin('MarkerPost').publishPost(snapshot).catch(() => {}); } catch { /* plugin missing */ }
+  quietly(() => plugin('MarkerPost').publishPost(snapshot));
 }
 
 // ------------------------------------------------------------ live tracking
@@ -315,15 +427,32 @@ export const live = {
     try { return await plugin('MarkerPost').getTrackingStatus(); } catch { return { active: false }; }
   },
 
-  /** Start. Resolves { active: true } or { active: false, reason }. */
+  /**
+   * Start. Resolves { active: true, since } or { active: false, reason? }.
+   * A start that succeeded can still carry a reason: on Android,
+   * "notifications-denied" means tracking runs but its notification cannot be
+   * shown, so the post is nowhere to be seen. iOS can refuse without a reason
+   * when none of the words fits (usually a passing cause).
+   */
   async start(options = {}) {
     try { return await plugin('MarkerPost').startTracking(options); }
     catch (e) { return { active: false, reason: String(e?.message || e) }; }
   },
 
+  /**
+   * Stop. Resolves { active: false } once the native side has been told. If
+   * the request did not get through, tracking may still be running: the
+   * answer is then what the native side reports, and { active: true,
+   * reason: "stop-failed" } while it is still running or cannot be asked.
+   * A failure is never reported as "stopped".
+   */
   async stop() {
-    try { return await plugin('MarkerPost').stopTracking(); }
-    catch (e) { return { active: false, reason: String(e?.message || e) }; }
+    if (!isNative) return { active: false };
+    try { return await plugin('MarkerPost').stopTracking(); } catch { /* the request did not get through */ }
+    try {
+      const now = await plugin('MarkerPost').getTrackingStatus();
+      return now && now.active ? { ...now, reason: 'stop-failed' } : (now || { active: false });
+    } catch { return { active: true, reason: 'stop-failed' }; }
   },
 
   /** Tell a running session about a changed preference. */
@@ -335,6 +464,6 @@ export const live = {
   /** handler({ active, reason? }) whenever the native side starts or stops tracking. */
   onChange(handler) {
     if (!isNative) return;
-    try { plugin('MarkerPost').addListener('trackingChanged', handler); } catch { /* plugin missing */ }
+    quietly(() => plugin('MarkerPost').addListener('trackingChanged', handler));
   },
 };
