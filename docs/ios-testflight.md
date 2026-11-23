@@ -90,6 +90,8 @@ On this computer, [in the app's folder](../README.md#running-a-command):
 node scripts/setup-ios-signing.mjs
 ```
 
+Run it in Command Prompt. In a window that cannot hide what you paste, it stops before asking anything.
+
 It asks for the four things you noted and the key file, and walks you through creating one access token on GitHub. If its token steps do not match what GitHub shows (for example there is no "1 year" choice), use the link in the token list under "Once a year" below: it fills in the name, a one-year expiry and the permission for you.
 
 It also asks two yes/no questions:
@@ -105,7 +107,7 @@ Then it:
 - creates a `testflight` "environment" on this repository, with you as the person who must approve each upload (that is the second question);
 - stores everything as encrypted secrets there.
 
-Nothing secret is printed or written to the computer, and nothing goes into this (public) repository. At the end it shows one password: save it in your password manager as "Marker Post match password". If you ever run the command again, it keeps that password and does not show a new one.
+Nothing is written to the computer, and nothing goes into this (public) repository. The only secret it shows is one password, at the end: save it in your password manager as "Marker Post match password". If you ever run the command again, it keeps that password and does not show a new one.
 
 To see what it would do without doing it: `node scripts/setup-ios-signing.mjs --dry-run`.
 
@@ -150,13 +152,19 @@ Then follow [testing-on-device.md](testing-on-device.md).
 
 ## After that
 
-- **A new build**: either press **Run workflow** (bootstrap box unticked) or push a version tag:
+- **A new build of the same version**: press **Run workflow** (bootstrap box unticked) and approve it as in step 8. Before the branch has been merged that button is not there: use the command from step 8 without `-f bootstrap_signing=true`.
+- **A new version number**: the number lives in `package.json`, and the tag has to match it. Use three numbers, such as 2.0.1. Once the branch has been merged, make this change on `master`, so the monthly build carries the new number too. In the app's folder:
   ```
+  npm version 2.0.1 --no-git-tag-version
+  node scripts/ios-project.mjs
+  git add package.json package-lock.json ios/App/App.xcodeproj/project.pbxproj
+  git commit -m "Version 2.0.1"
+  git push
   git tag v2.0.1
   git push origin v2.0.1
   ```
-  Approve it on the Actions page as in step 8. TestFlight on the phone updates the app by itself if automatic updates are on.
-- **Every month**: on the 1st, GitHub starts a build by itself and waits for your approval. TestFlight builds stop working 90 days after upload, so approving it keeps the app alive. If you do not want that month's build, open the run, press **Review deployments**, tick **testflight** and press **Reject** (or press **Cancel run**). Do not leave it waiting: a waiting run can hold the queue, so a build you start later sits as "pending" until the old one has been approved, rejected or cancelled. GitHub gives up on a waiting run by itself after 30 days. The monthly build only starts once the branch has been merged into `master`.
+  The second command writes the number into the Xcode project; without it both iPhone workflows stop at "The Xcode project lists every source file". If it answers `Cannot find module 'xcode'`, run `npm install` once and then run it again. Approve the build on the Actions page as in step 8. TestFlight on the phone updates the app by itself if automatic updates are on.
+- **Every month**: on the 1st, GitHub starts a build by itself and waits for your approval. TestFlight builds stop working 90 days after upload, so approving it keeps the app alive. If you do not want that month's build, open the run, press **Review deployments**, tick **testflight** and press **Reject** (or press **Cancel run**). Do not leave it waiting: a waiting run can hold the queue, so a build you start later sits as "pending" until the old one has been approved, rejected or cancelled. GitHub gives up on a waiting run by itself after 30 days. The monthly build only starts once the branch has been merged into `master`. Until then, start a build yourself at least every two months.
 - **Once a year**: the signing certificate and your GitHub token expire.
   - Certificate: run the workflow once with the bootstrap box ticked.
   - Token: make a new one and hand it to GitHub, like this. Do not run the setup command again for this.
@@ -170,7 +178,7 @@ Then follow [testing-on-device.md](testing-on-device.md).
 ## Things to know
 
 - **Location.** The app asks for "While Using" only, never "Always". Live tracking keeps running in the background because the Live Activity is visible; when you stop tracking, location stops. iOS shows its usual location indicator while it runs.
-- **Eight hours.** iOS ends any Live Activity after 8 hours, and a shift is 12. On iOS 26 the app lines up a replacement shortly before the limit, so the post stays on screen. On iOS 18 it warns you on the Lock Screen about half an hour before, and opening the app once renews it. The app also adds a "Show nearest marker post" shortcut that does the same from the Shortcuts app or by asking Siri.
+- **Eight hours.** iOS ends any Live Activity after 8 hours, and a shift is 12. On iOS 26 the app lines up a replacement shortly before the limit, so the post stays on screen. On iOS 18 it warns you on the Lock Screen about half an hour before, and opening the app once renews it. The app also adds a "Show nearest marker post" shortcut that tries the same from the Shortcuts app or by asking Siri, and tells you which of four things happened: the display was renewed; it is still on but could not be renewed (asked through Siri while the card is showing, this may be the usual answer); it could not be renewed, so open the app; or live tracking is off. Not yet seen on a device: see [testing-on-device.md](testing-on-device.md), C14 to C18.
 - **CarPlay.** With iOS 26 or later the Live Activity appears on the CarPlay Dashboard by itself. There is no separate CarPlay app, and no setting to turn on.
 - **Starting it when you get in the vehicle.** The app answers the link `markerpost://live/start`, which opens it and starts live tracking. The Shortcuts app can open that link for you when CarPlay connects: Shortcuts, **Automation**, **+**, **CarPlay**, **Connects**, **Run Immediately**, then add the action **Open URLs** with `markerpost://live/start`. iOS may ask you to unlock the phone first, because only an app that is on screen is allowed to start a Live Activity. I have not been able to try this on a phone: it is step C8 in [testing-on-device.md](testing-on-device.md).
 - **Public logs.** This repository is public, so the build logs are too. The workflow hides your team name and Team ID in them and keeps no build files. Do not add `--verbose` to the build command.
@@ -179,10 +187,13 @@ Then follow [testing-on-device.md](testing-on-device.md).
 
 ## If something goes wrong
 
-Open the failed run on the Actions page and read the last lines of the **Sign, build and upload** step.
+Open the failed run on the Actions page and read the last lines of the step with the red cross (usually **Sign, build and upload**).
 
 | What it says | What to do |
 |---|---|
+| A new run stays "pending" and has no **Review deployments** button | An older ios-testflight run is still waiting for your approval. Open that one and approve or reject it; the new run then asks for approval in its turn. If the new run shows as cancelled, start it again. |
+| `Tag v2.0.1 does not match version 2.0.0 in package.json` (with your numbers) | The tag was pushed without changing the version first. Nothing was signed or uploaded. Remove the tag: `git tag -d v2.0.1`, then `git push origin --delete v2.0.1`. Then follow "A new version number" under "After that". |
+| The run stops at **Lookup tests (same answers as the web app)** | The check that the iPhone lookup gives the web app's answers did not pass, so nothing was signed or uploaded. Copy the last 30 lines of that step and send them to me. |
 | The command in step 8 answers that it could not find the workflow, or that the workflow has no `workflow_dispatch` trigger | GitHub will not start it from a branch. Merge first ([going-live.md](going-live.md)), then use **Actions**, **ios-testflight**, **Run workflow** with the bootstrap box ticked. |
 | The run is "skipped" | The setup command has not been run on this repository yet (step 6). |
 | `An app with that bundle ID needs to exist` | An identifier is missing or mistyped. Check step 3: both `io.github.jet11111.markerpost` and `io.github.jet11111.markerpost.widgets`. |

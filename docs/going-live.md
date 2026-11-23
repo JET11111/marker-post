@@ -37,6 +37,10 @@ That is safe to do at any time: the live site keeps being published by the workf
 
 (The same thing from this computer: `gh api -X PUT repos/JET11111/marker-post/pages -f build_type=workflow`)
 
+### 4. Recommended: approve other people's pull requests first
+
+The repository is public, so anyone can propose a change, and GitHub would then build an Android app from it. Make GitHub ask you before it runs anything for someone else: **Settings**, **Actions**, **General**, **Approval for running fork pull request workflows from contributors**, choose **Require approval for all external contributors**, **Save**. It changes nothing for your own builds.
+
 ## Merging
 
 1. On GitHub open **Pull requests**. If there is not one for `feature/native-app` yet, press **New pull request**, set "compare" to `feature/native-app`, and press **Create pull request**.

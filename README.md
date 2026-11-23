@@ -16,7 +16,7 @@ The same code runs in three places:
 | Android app | an APK built by GitHub, installed by hand | [docs/android-app.md](docs/android-app.md) |
 | iPhone app | built and uploaded to TestFlight by GitHub (no Mac needed) | [docs/ios-testflight.md](docs/ios-testflight.md) |
 
-The phone apps add what a web page cannot do: the post on the Lock Screen, Dynamic Island and CarPlay (iPhone Live Activity), an ongoing notification (Android), home screen widgets, and tracking that carries on with the screen off.
+The phone apps add what a web page cannot do: the post on the Lock Screen, Dynamic Island and CarPlay (iPhone Live Activity), an ongoing notification (Android), home screen widgets, and tracking that carries on with the screen off. These have not yet been seen working on a real phone: see [docs/testing-on-device.md](docs/testing-on-device.md).
 
 ## What it shows
 
@@ -32,7 +32,8 @@ These rules are deliberate. Please keep them when changing anything.
 
 - Unknown stays unknown. A missing record is shown as not recorded, never as "none".
 - Distances are straight-line, and say so. They are not driving distances.
-- A carriageway that could not be confirmed from your direction of travel is said to be so. The first page adds the line "Nearest post by position only. Check the carriageway." The Lock Screen, notification and widgets show the letter outlined instead of filled.
+- A carriageway that could not be confirmed from your direction of travel is said to be so. The first page adds a line such as "Nearest post by position only. Check the carriageway." The Lock Screen and widgets show the letter outlined instead of filled; where only text fits (the Android notification, the Lock Screen's one-line widget) the letter is left out or replaced by "Check carriageway".
+- A post far from your position (more than 250 m) is called the nearest recorded post, with its distance. Nothing says you are off the road: that is not known.
 - Older and unverified records (for example the 2025 emergency area list) stay labelled as such.
 - A position that has gone stale never looks current: the readout dims and says when the last fix was.
 - Widgets show a "last updated" time and never claim to be live. The Live Activity and the Android notification are the live displays.
@@ -87,9 +88,10 @@ The other commands need `npm install` once (it fetches the Capacitor tools):
 npm run check          # every file parses, imports resolve, both builds work
 npm run build          # the web app, as published, into www/
 npm run preview        # build it and serve www/ on http://localhost:8080
-npm run build:native   # the web app and lookup data for the phone apps
+npm run build:native   # the web app for the phone apps, into www-native/, and their lookup data
 npm run basemap        # cut the offline street map (tiles/basemap.pmtiles, about 41 MB, not committed)
 npm run screenshots    # retake the pictures on this page
+npm run smoke:web      # the web app in Chrome: online, server down, weak signal, back online (about two minutes)
 ```
 
 ### Layout
@@ -115,7 +117,7 @@ How the phone apps are put together, and the contract between the web code and t
 
 - **Web app**: every push to `master` runs `.github/workflows/pages.yml`, which builds `www/` and publishes it. See [docs/going-live.md](docs/going-live.md) before merging a large change.
 - **Android**: `.github/workflows/android.yml` runs the lookup tests and builds the APKs.
-- **iPhone**: `.github/workflows/ios.yml` runs the Swift lookup tests and checks that the app and its widget extension compile; `.github/workflows/ios-testflight.yml` signs and uploads.
+- **iPhone**: `.github/workflows/ios.yml` runs the Swift lookup tests and checks that the app and its widget extension compile; `.github/workflows/ios-testflight.yml` runs the same lookup tests, then signs and uploads.
 - **Data**: `network.yml` (daily) and `vms.yml` (every few minutes, when GitHub allows) refresh `data/` and republish the site.
 
 This repository is public. No key, certificate, password or token belongs in it: signing material lives in GitHub secrets and in a separate private repository, and `.gitignore` refuses the usual file types.
@@ -131,4 +133,4 @@ What to check, and what could only be checked on a real device: [docs/testing-on
 - Street map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL), as vector tiles from a [Protomaps](https://protomaps.com) build.
 - Map engine and fonts: MapLibre GL JS, PMTiles, Protomaps basemaps, Noto Sans. Licences are in `vendor/`.
 
-The OpenStreetMap and National Highways attributions stay visible on the map. The link to the marker post compilation is in Settings and about.
+The National Highways attribution is always on the map, and the OpenStreetMap one whenever its street map is drawn. The link to the marker post compilation is in Settings and about.

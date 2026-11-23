@@ -4,7 +4,7 @@ GitHub builds the Android app for you. You do not need Android Studio, Java or a
 
 What the Android app adds to the web app:
 
-- **Live tracking** with the screen off, shown as an ongoing notification: the post, the section and the time, on the lock screen and at the top of the notification shade. A "Stop" button ends it.
+- **Live tracking** with the screen off, shown as an ongoing notification: the post, the time it was updated and the section, on the lock screen and at the top of the notification shade. A "Stop" button ends it.
 - **A home screen widget** with the last known post and the time it was updated.
 - The street map of the patch is inside the app, so the map works with no signal from the first launch.
 
@@ -13,7 +13,7 @@ What the Android app adds to the web app:
 **From the Actions page** (works straight away)
 
 1. On GitHub, open the repository, then **Actions**, then **android** in the list on the left.
-2. Open the newest run with a green tick.
+2. Open the newest run with a green tick that is one of your own: under its title it shows the branch `master` (or `feature/native-app` before the merge) and your name. Skip any run marked as a pull request from someone else. That app was built from their changes, which nobody has checked.
 3. At the bottom, under **Artifacts**, download **marker-post-android**. It is a zip file holding two APKs:
    - `marker-post-2.0.0-buildN.apk`: the normal app. Use this one.
    - `marker-post-2.0.0-buildN-debug.apk`: the same app with developer tools switched on. Only useful when chasing a fault.
@@ -62,14 +62,14 @@ To fix that for good, run this once, [in the app's folder](../README.md#running-
 node scripts/setup-android-signing.mjs
 ```
 
-It makes a key in `marker-post-keys` in your home folder (outside the repository), asks before sending anything, and then stores the key as four encrypted GitHub secrets. From the next build on, updates install over the top.
+It makes a key in `marker-post-keys` in your home folder (outside the repository), asks before sending anything, and then stores the key as four encrypted GitHub secrets. The next build is the first one signed with your own key, so uninstall the app one last time before installing it. After that, updates install over the top.
 
 Afterwards, back up two things somewhere safe that is not a repository (a password manager, or a USB stick):
 
 - the folder `marker-post-keys` in your home folder;
 - the file `android/keystore.properties` in the app's folder (git ignores it).
 
-If you ever lose them, nothing is broken: uninstall the app once, run the script again to make a new key, and carry on.
+If you ever lose them, nothing is broken: uninstall the app once, run the script again to make a new key, and carry on. If only one of the two is lost, the script stops without changing anything and tells you what to move out of the way first: it never replaces a key, or the file that holds a key's password.
 
 To see what the script would do without doing it: `node scripts/setup-android-signing.mjs --dry-run`.
 
@@ -82,6 +82,7 @@ Every change pushed to GitHub that touches the app builds a new APK. Download an
 - **Location in the background.** The app never asks for "Allow all the time". Live tracking runs as a visible foreground service with its notification, which Android allows with "While using the app". When you stop tracking, location stops.
 - **Backups.** The app is excluded from Android's cloud backup, because the last known post is a record of where the phone has been.
 - **Starting it automatically.** The app answers the link `markerpost://live/start`, which opens it and starts live tracking (`markerpost://live/stop` stops it). An automation app that can open a link can use it when the phone connects to the vehicle's Bluetooth. I have not been able to try this on a phone, including with Samsung's Modes and Routines. If your automation app has no "open link" action, it cannot use it.
+- **Pull requests from other people.** The repository is public, so anyone can propose a change and GitHub would build an APK from it. Make GitHub ask you first, every time: **Settings**, **Actions**, **General**, **Approval for running fork pull request workflows from contributors**, choose **Require approval for all external contributors**, **Save**.
 - **Android Auto.** Nothing appears on the car's screen. Android does not show this kind of notification there, and an app installed by hand cannot run as a car app. The phone in a cradle is the display.
 - **From 2027: developer verification.** Google has announced that apps installed by hand on certified phones will need to come from a registered developer, rolling out worldwide during 2027. A free "limited distribution" account is meant for exactly this case (a personal app on a few phones). When it reaches the UK, register the app name `io.github.jet11111.markerpost` and your signing key at <https://developer.android.com/developer-verification>. That is another reason to have your own key (section 4).
 - **The Play Store** is not set up. It would need a Google Play developer account and a store listing, and is not needed for your own phones.
@@ -103,9 +104,9 @@ npm run android:debug    # the APK appears in android/app/build/outputs/apk/debu
 
 | What you see | What to do |
 |---|---|
-| "App not installed" when updating | The new build was signed with a different key. Uninstall Marker Post, then install again. Section 4 stops this happening. |
+| "App not installed" when updating | The new build was signed with a different key. Before you have your own key (section 4), and for the first build after you set it up, this is normal: uninstall Marker Post, then install again. After that it means the file is not one of your own builds, or is older than the app on the phone: do not uninstall to get round it. Go back to section 1 and check which run you downloaded from. |
 | "There was a problem parsing the package" | The download was cut short, or the zip was opened instead of the APK inside it. Download again and unzip first. |
 | The map has no streets, only the road network | The street map could not be read. Settings and about, **Copy diagnostics**, and send me the text. |
-| "Location blocked" at the top of the first page, with "Location is blocked. Allow location for Marker Post in Settings." under the card; or "Live tracking needs Precise Location. Turn it on for Marker Post in Settings." | Settings, Apps, Marker Post, Permissions, Location: choose **Allow only while using the app** and switch **Use precise location** on. Then close the app and open it again. |
-| No notification when tracking | Settings, Apps, Marker Post, Notifications: switch them on. Tracking still runs without it, but there is nothing to see. |
+| "Location blocked" at the top of the first page, with "Location is blocked. Allow location for Marker Post in Settings." under the card; or "Live tracking needs Precise Location. Turn it on for Marker Post in Settings." | Settings, Apps, Marker Post, Permissions, Location: choose **Allow only while using the app** and switch **Use precise location** on. Then go back to the app: it carries on by itself. For live tracking, press **Start live tracking** again. |
+| No notification when tracking | Settings, Apps, Marker Post, Notifications: switch them on, including the **Live tracking** category. Tracking still runs without it, but there is nothing to see. |
 | Anything else | Settings and about, **Copy diagnostics**. It copies the app version, phone type and any errors (never your position). |

@@ -73,15 +73,21 @@ Numbers that change in place use tabular figures so they do not jiggle.
 
 The Nearest page is the original app's page, and the owner has asked for it to stay that way. Please do not restyle it without asking.
 
-- Top: the small post mark and "Marker Post / Hampshire" on the left; the GPS state on the right ("Live" and the accuracy, or what is wrong).
+- Top: the small post mark and "Marker Post / Hampshire" on the left; the GPS state on the right ("Live" and the accuracy, "Poor GPS" when the fix is too rough to trust, "Simulated" for a made-up desk position, or what is wrong).
 - "Nearest marker post" in small spaced capitals, then the post's reference as large as the width allows, centred. The records' leading "P" is left out: `P20/9A` is shown as `20/9A`.
 - The road beneath it, in amber.
 - One card of rows: the junction section, the straight-line distance to the post, the nearest junction, and the nearest emergency area reference (labelled unverified). The junction section is National Highways' own description of that stretch of carriageway ("Between junctions J5 – J7", or "Within junction J5" between a junction's slip roads). It is never worked out from distances, and where the records give none the row is left out.
-- A small line: "updated", the time of the reading, and "distances are straight-line". For interchange posts it gives the link (for example M27B/M3B) and "source survey date unknown" in place of the time.
-- A second small line, "Nearest post by position only. Check the carriageway.", only when the direction of travel has not confirmed the carriageway.
+- A small line: "updated", the time of the reading, and "distances are straight-line". After half a minute with no new reading the age is added in words ("40 s ago"), whatever the speed. For interchange posts it gives the link (for example M27B/M3B) and "source survey date unknown" in place of the time.
+- A second small line, only when there is something to check. It has four forms:
+  - "Nearest post by position only. Check the carriageway." (the direction of travel played no part);
+  - "Not confirmed by your direction of travel. Check the carriageway." (an interchange post while moving);
+  - "Nearest recorded post is 1.24 km away, by position only. Check the carriageway." (more than 250 m from the post);
+  - "Nearest recorded post for your direction of travel is 1.24 km away. Check the carriageway." (the same, while moving).
 - "Explore on the network map", then the "Prefer my direction of travel" switch.
 
-When the position goes stale the reference and road dim and a caution strip appears. In light mode the same layout is drawn on the light palette.
+When the position goes stale the reference and road dim and a caution strip appears ("No GPS update for 40 s · last known post"). The same happens, with the accuracy in the strip, when the fix is too rough to trust, and the reference dims when the post is more than 250 m away. In light mode the same layout is drawn on the light palette.
+
+The other tabs (Signs, Vehicle, Go to) show a small GPS pill in their header only when the position is not a current, good, real one, with the same words as the first page. Sign cards name a carriageway by its letter ("carriageway B"), never by a compass direction.
 
 ## Components
 
@@ -102,8 +108,9 @@ The base map is deliberately muted (soft greys and greens, thin roads, small lab
 - Road numbers on the network are small road-sign shields drawn above the dots. Other roads keep the base map's plain grey shields.
 - Emergency areas, lay-bys and junctions have their own small symbols; older emergency-area records are drawn differently because they are unverified.
 - Buildings rise very slightly when zoomed right in. That is the only 3D.
-- "© OpenStreetMap · National Highways (OGL)" is always visible.
+- The credit "© OpenStreetMap · National Highways (OGL)" stays readable in every layout: above an open card in portrait, beside it in landscape and on wide screens. The OpenStreetMap half is shown whenever the street map is drawn, and left out when that layer is off or the street map could not be loaded.
+- Your position: a blue dot with its accuracy circle while the position is current. Once it is not (the first page's rule) the dot is grey, has no circle and is labelled "Last known" with the time. A position made up for desk testing is labelled "Simulated position".
 
 ## Lock Screen, CarPlay, notification and widgets
 
-They use the same pieces at smaller sizes: road badge, post number, carriageway block (filled or outlined), section, and always a time. They have no buttons, because they are seen while driving. A widget says "Last updated"; only the Live Activity and the Android notification say or imply "now". The full rules are in [native-apps.md](native-apps.md), section 7.
+They use the same pieces at smaller sizes: road badge, post number, carriageway block, section, and always a time, written first and in 24-hour form. The carriageway block is filled when confirmed and outlined when not; where a surface can only print text (the Android notification, the Lock Screen's one-line widget) a letter that is not confirmed is left out or replaced by the words "Check carriageway". They have no buttons, because they are seen while driving. A widget says "Last updated"; only the Live Activity and the Android notification say or imply "now". The full rules are in [native-apps.md](native-apps.md), section 7.
