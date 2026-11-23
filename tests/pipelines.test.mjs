@@ -132,3 +132,22 @@ test('the iPhone version is the one in package.json, and a tag that disagrees st
   const listed = [...project.matchAll(/MARKETING_VERSION = ([^;]+);/g)].map((m) => m[1]);
   assert.ok(listed.length > 0 && listed.every((v) => v === version), 'run node scripts/ios-project.mjs after changing the version');
 });
+
+// ios.yml rehearses the TestFlight lookup step on every change. A green
+// Xcode 26 leg only says something about the release while the two steps
+// are the same.
+test('the rehearsal on the Xcode 26 leg is the TestFlight lookup step, word for word', async () => {
+  // What a step holds after its name line, without the "if" that keeps the rehearsal to one leg.
+  const body = (code, name) => {
+    const lines = code.split('\n');
+    const at = lines.indexOf(`      - name: ${name}`);
+    assert.ok(at >= 0, `the step "${name}" exists`);
+    const rest = lines.slice(at + 1);
+    const end = rest.findIndex((line) => !/^ {8,}\S/.test(line));
+    return rest.slice(0, end < 0 ? rest.length : end).filter((line) => !/^ {8}if: /.test(line)).join('\n');
+  };
+  const real = body(await workflowCode('ios-testflight.yml'), 'Lookup tests (same answers as the web app)');
+  const rehearsal = body(await workflowCode('ios.yml'), 'Lookup tests in this checkout, as the TestFlight job runs them');
+  assert.match(real, /^\s+swift test$/m);
+  assert.equal(rehearsal, real);
+});
